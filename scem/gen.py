@@ -1,6 +1,7 @@
 import torch
 from scem import stein
 from abc import ABCMeta, abstractmethod
+from torch.nn.parameter import Parameter
 
 
 class LatentEBM(torch.nn.Module, metaclass=ABCMeta):
@@ -74,8 +75,8 @@ class PPCA(LatentEBM):
 
     def __init__(self, weight, var):
         super(PPCA, self).__init__()
-        self.weight = weight
-        self.var = var
+        self.weight = Parameter(weight)
+        self.var = Parameter(var)
     
     def forward(self, X, Z):
         W = self.weight
