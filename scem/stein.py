@@ -51,3 +51,72 @@ pscore_dict = {
     'continuous': pscore_continuous,
     'lattice': pscore_lattice,
 }
+
+def ksd_ustat_gram(X, S, k):
+    n, dx = X.shape
+    # n x dy matrix of gradients
+    # n x n
+    gram_score = S @ S.T
+    # n x n
+    K = k.eval(X, X)
+
+    B = torch.zeros((n, n))
+    C = torch.zeros((n, n))
+    for i in range(dx):
+        S_i = S[:, i]
+        B += k.gradX_Y(X, X, i)*S_i
+        C += (k.gradY_X(X, X, i).T * S_i).T
+
+    h = K*gram_score + B + C + k.gradXY_sum(X, X)
+    return h
+    
+
+def ksd_ustat(X, score_fn, k):
+    n = X.shape[0]
+
+    S = score_fn(X)
+    H = ksd_ustat_gram(X, S, k)
+    stat = (torch.sum(H) - torch.sum(torch.diag(H)))
+    stat /= (n*(n-1))
+    return stat
+
+def kscd_ustat(X, Z, cond_score_fn, k, l):
+    n = X.shape[0]
+    assert n == Z.shape[0]
+
+    S = cond_score_fn(X, Z)
+    cond_ksd_gram = ksd_ustat_gram(Z, S, l)
+    K = k.eval(X, X) 
+    H = K * cond_ksd_gram
+    stat = (torch.sum(H) - torch.sum(torch.diag(H)))
+    stat /= (n*(n-1))
+    return stat
+
+def main():
+    import kernel
+    from gen import PPCA
+    seed = 13
+    torch.manual_seed(seed)
+    n = 100
+    dx = 4
+    dz = 2
+    W = torch.randn([dx, dz])
+    var = torch.tensor([2.0])
+    ppca = PPCA(W, var)
+
+    score_fn = ppca.score_marginal_obs
+    cond_score_fn = ppca.posterior_score
+    width_x = torch.tensor([1.0])
+    width_y = torch.tensor([1.0])
+    k = kernel.PTKGauss(width_x)
+    l = kernel.PTKGauss(width_y)
+
+    X = torch.randn([n, dx]) @ (W@W.T + var * torch.eye(dx))
+    print(ksd_ustat(X, score_fn, k))
+
+    Z = torch.randn([n, dz])
+    X = Z @ W.T + var**0.5 * torch.randn([n, dx])
+    print(kscd_ustat(X, Z, cond_score_fn, k, l))
+
+if __name__ == '__main__':
+    main()
