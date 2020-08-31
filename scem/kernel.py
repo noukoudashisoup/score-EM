@@ -47,9 +47,8 @@ class KSTKernel(Kernel, metaclass=ABCMeta):
 
        Return a numpy array of size nx x ny.
        """
-       raise NotImplementedError()
+       pass
 
-    @abstractmethod
     def gradY_X(self, X, Y, dim):
        """
        Compute the gradient with respect to the dimension dim of Y in k(X, Y).
@@ -59,7 +58,7 @@ class KSTKernel(Kernel, metaclass=ABCMeta):
 
        Return a numpy array of size nx x ny.
        """
-       raise self.gradX_Y(Y, X, dim).T
+       return self.gradX_Y(Y, X, dim).T
 
 
     @abstractmethod
@@ -73,7 +72,7 @@ class KSTKernel(Kernel, metaclass=ABCMeta):
 
         Return a nx x ny numpy array of the derivatives.
         """
-        raise NotImplementedError()
+        pass
 
 # end KSTKernel
 
@@ -153,7 +152,7 @@ class PTKGauss(KSTKernel):
 
     def gradY_X(self, X, Y, dim):
         """
-        CoNotImplementedErrormpute the gradient with respect to the dimension dim of Y in k(X, Y).
+        Compute the gradient with respect to the dimension dim of Y in k(X, Y).
 
         X: nx x d
         Y: ny x d
