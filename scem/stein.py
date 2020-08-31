@@ -5,6 +5,7 @@ for computing stein discrepancies.
 
 """
 import torch
+from scem import gen
 
 def pscore_continuous(X, Z, energy_fn):
     """The derivate of the energy function
@@ -27,7 +28,8 @@ def pscore_continuous(X, Z, energy_fn):
     """
     assert isinstance(X, torch.Tensor)
     assert isinstance(Z, torch.Tensor)
-    Z.requires_grad = True 
+    if Z.is_leaf:
+        Z.requires_grad = True 
     energy = energy_fn(X, Z)
     energy_sum = torch.sum(energy)
     Gs = torch.autograd.grad(energy_sum, Z,
@@ -53,6 +55,17 @@ pscore_dict = {
 }
 
 def ksd_ustat_gram(X, S, k):
+    """Returns the gram matrix of 
+    a score-absed Stein kernel
+
+    Args:
+        X (torch.Tensor): n x dx tensor
+        S (torch.Tensor): n x dx tensor 
+        k (kernel): a KSTKernel object
+
+    Returns:
+        torch.tensor: n x n tensor
+    """
     n, dx = X.shape
     # n x dy matrix of gradients
     # n x n
@@ -92,6 +105,41 @@ def kscd_ustat(X, Z, cond_score_fn, k, l):
     stat /= (n*(n-1))
     return stat
 
+
+class ApproximateScore:
+    """Approximate score of a latent EBM. 
+    
+    Given a the derivative of a joint 
+    densit w.r.t. covariates, this computes
+    an approximate marginal score with an 
+    approximate posterior distribution over 
+    the latent. 
+    
+    
+    Attributes:
+        joint_score_fn:
+            Callable returning the derivative
+            of p(x, z) w.r.t. x
+        csampler: 
+            A gen.ConditionalSampler object
+            representing an approximate posterior
+    """
+
+    def __init__(self, joint_score_fn, csampler):
+        self.joint_score_fn = joint_score_fn
+        self.csampler = csampler
+
+    def __call__(self, X, n_sample=100, seed=7):
+        n, _ = X.shape
+        cs = self.csampler
+        js = self.joint_score_fn
+        Z_batch = cs.sample(n_sample, X, seed=seed)
+        # Assuming the last two dims are [n, dx]
+        # TODO this is not efficient
+        JS = [js(X, Z_batch[i]) for i in range(n_sample)]
+        return torch.mean(torch.stack(JS), dim=0)
+
+
 def main():
     import kernel
     from gen import PPCA
@@ -117,6 +165,7 @@ def main():
     Z = torch.randn([n, dz])
     X = Z @ W.T + var**0.5 * torch.randn([n, dx])
     print(kscd_ustat(X, Z, cond_score_fn, k, l))
+
 
 if __name__ == '__main__':
     main()
