@@ -45,9 +45,8 @@ def main():
 
     # KSCD training
     T = 2000
-    n_sample = 500
+    n_sample = 200
     kz = kernel.PTKGauss(torch.tensor([1.0]))
-    # print(torch.pinverse(W.T@W/var + torch.eye(dz)))
     for t in range(T):
         Z = cs.sample(1, X, seed+t)
         Z = Z.squeeze(0)
@@ -60,7 +59,7 @@ def main():
         loss.backward()
         optimizer.step()
     
-        if t%100 == 0:
+        if t%200 == 0:
             marginal_score_mse = (torch.mean(
                 (approx_score(X, n_sample=n_sample)-S)**2))
             print('(iter, loss, score mse): {}, {}. {}'.format(t, loss, marginal_score_mse))
