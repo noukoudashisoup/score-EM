@@ -165,13 +165,15 @@ class PTCSGaussLinearMean(CSNoiseTransformer):
     def __init__(self, dx, dz):
         super(PTCSGaussLinearMean, self).__init__()
         self.mean_fn = torch.nn.Linear(dx, dz)
-        self.cov = Parameter(0.1*torch.randn(dz, dz))
+        #self.cov = Parameter(0.01*torch.randn(dz, dz)) + torch.eye(dz)
+        self.cov = Parameter(torch.eye(dz))
         self.dx = dx
         self.dz = dz
     
     def forward(self, noise, X):
-        mean = self.mean_fn(X)
-        cov = self.cov @ self.cov.T
+        mean = (self.mean_fn(X))
+        cov = self.cov
+        #print(cov @ cov.T)
         out  = noise @ cov  + mean
         return out
 
