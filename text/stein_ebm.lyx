@@ -1,0 +1,680 @@
+#LyX 2.3 created this file. For more info see http://www.lyx.org/
+\lyxformat 544
+\begin_document
+\begin_header
+\save_transient_properties true
+\origin unavailable
+\textclass article
+\begin_preamble
+\usepackage[scale=0.75]{geometry} % Reduce document margins
+% \usepackage[left]{lineno}
+
+\usepackage{vruler}
+% \setvruler[scale][initial_count][step][digits][mode][odd_hshift][even_hshift][vshift]
+% [height]
+\setvruler[][1][1][3][1][0pt][0pt][0pt][\textheight]
+\end_preamble
+\use_default_options true
+\begin_modules
+theorems-ams
+\end_modules
+\maintain_unincluded_children false
+\language english
+\language_package default
+\inputencoding auto
+\fontencoding global
+\font_roman "default" "default"
+\font_sans "default" "default"
+\font_typewriter "default" "default"
+\font_math "auto" "auto"
+\font_default_family default
+\use_non_tex_fonts false
+\font_sc false
+\font_osf false
+\font_sf_scale 100 100
+\font_tt_scale 100 100
+\use_microtype false
+\use_dash_ligatures true
+\graphics default
+\default_output_format default
+\output_sync 0
+\bibtex_command default
+\index_command default
+\paperfontsize default
+\spacing single
+\use_hyperref false
+\papersize default
+\use_geometry false
+\use_package amsmath 1
+\use_package amssymb 1
+\use_package cancel 1
+\use_package esint 1
+\use_package mathdots 1
+\use_package mathtools 1
+\use_package mhchem 1
+\use_package stackrel 1
+\use_package stmaryrd 1
+\use_package undertilde 1
+\cite_engine basic
+\cite_engine_type default
+\biblio_style plain
+\use_bibtopic false
+\use_indices false
+\paperorientation portrait
+\suppress_date false
+\justification true
+\use_refstyle 1
+\use_minted 0
+\index Index
+\shortcut idx
+\color #008000
+\end_index
+\secnumdepth 3
+\tocdepth 3
+\paragraph_separation indent
+\paragraph_indentation default
+\is_math_indent 0
+\math_numbering_side default
+\quotes_style english
+\dynamic_quotes 0
+\papercolumns 1
+\papersides 1
+\paperpagestyle default
+\tracking_changes false
+\output_changes false
+\html_math_output 0
+\html_css_as_file 0
+\html_be_strict false
+\end_header
+
+\begin_body
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\score}[1]{\mathbf{s}_{#1}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\hatscore}[1]{\hat{\mathbf{s}}_{#1}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\calX}{\mathcal{X}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\EE}{\mathbb{E}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\dd}{\mathrm{d}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\var}{\mathrm{Var}}
+\end_inset
+
+
+\begin_inset FormulaMacro
+\newcommand{\cov}{\mathrm{Cov}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\calY}{\mathcal{Y}}
+\end_inset
+
+
+\begin_inset FormulaMacro
+\newcommand{\calF}{\mathcal{H}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\calZ}{\mathcal{Z}}
+\end_inset
+
+
+\begin_inset FormulaMacro
+\renewcommand{\calF}{\mathcal{F}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\inner}[2]{\left\langle #1,#2\right\rangle }
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\la}{\langle}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\ra}{\rangle}
+\end_inset
+
+
+\begin_inset FormulaMacro
+\newcommand{\mmd}[2]{\mathrm{MMD(#1,#2)}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\mmdsq}[2]{\mathrm{\mathrm{{\mathrm{MMD}}^{2}}(#1,#2)}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\mmdsqhat}[2]{\mathrm{\mathrm{\widehat{\mathrm{{\mathrm{MMD}}^{2}}}}(#1,#2)}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\norm}[1]{\left\Vert #1\right\Vert }
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\bignorm}[1]{\big\Vert#1\big\Vert}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\Normal}[2]{\mathcal{N}(#1,#2)}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\ksdhpm}{\widehat{S_{p_{m}}^{2}}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\ksdhp}{\widehat{S_{p}^{2}}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\ksdh}[2]{\widehat{\mathrm{\mathrm{KSD}}_{#1}^{2}}(#2)}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\ksdsq}[2]{\mathrm{KSD}_{#1}^{2}(#2)}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\ksd}[2]{\mathrm{KSD}_{#1}(#2)}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\dto}{\overset{d}{\to}}
+\end_inset
+
+
+\begin_inset FormulaMacro
+\newcommand{\pto}{\overset{p}{\to}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\parder}[1]{\frac{\partial}{\partial#1}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\diag}{\mathrm{diag}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\Pr}{\mathrm{Pr}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\austat}{U_{n,m}}
+\end_inset
+
+
+\begin_inset FormulaMacro
+\newcommand{\ustat}{U_{n}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\unmp}{U_{n,m}^{(p)}}
+\end_inset
+
+
+\begin_inset FormulaMacro
+\newcommand{\unmq}{U_{n,m}^{(q)}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\unp}{U_{n}^{(p)}}
+\end_inset
+
+
+\begin_inset FormulaMacro
+\newcommand{\unq}{U_{n}^{(q)}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\un}[1]{U_{n}^{(#1)}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\ksdpsq}[1]{S_{p}^{2}(#1)}
+\end_inset
+
+
+\begin_inset FormulaMacro
+\newcommand{\ksdqsq}[1]{S_{q}^{2}(#1)}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\diff}[2]{#1-#2}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset FormulaMacro
+\newcommand{\bfone}{\mathbf{1}}
+\end_inset
+
+
+\end_layout
+
+\begin_layout Title
+Notes on Stein-EBM learning
+\end_layout
+
+\begin_layout Author
+Heishiro Kanagawa
+\end_layout
+
+\begin_layout Section
+Understanding the loss
+\end_layout
+
+\begin_layout Standard
+Let 
+\begin_inset Formula $\{x_{i}\}_{i=1}^{n}$
+\end_inset
+
+ be a sample from an unknown distribution 
+\begin_inset Formula $\mu$
+\end_inset
+
+ and 
+\begin_inset Formula $p_{\theta}(x)=\int p_{\theta}(x,z)\dd z$
+\end_inset
+
+ be a density modelling the data.
+ KL mimisation is equivalent to 
+\begin_inset Formula 
+\[
+\max_{\theta}\EE_{x\sim\mu}\log p_{\theta}(x)=\max_{\theta}\EE_{x\sim\mu}\left\{ \EE_{q(z)}\left[\log\frac{p_{\theta}(x,z)}{q(z|x)}\right]+\mathrm{KL}[q(z|x)||p_{\theta}(z|x)]\right\} ,
+\]
+
+\end_inset
+
+for any 
+\begin_inset Formula $q(z|x)$
+\end_inset
+
+.
+ In particular, if 
+\begin_inset Formula $q(z|x)=p_{\theta}(z|x)$
+\end_inset
+
+ for 
+\begin_inset Formula $\mu-$
+\end_inset
+
+almost every 
+\begin_inset Formula $x$
+\end_inset
+
+, 
+\begin_inset Formula 
+\[
+\max_{\theta}\EE_{x\sim\mu}\log p_{\theta}(x)=\max_{\theta}\EE_{x\sim\mu}\EE_{p(z|x)}\left[\log\frac{p_{\theta}(x,z)}{p_{\theta}(z|x)}\right].
+\]
+
+\end_inset
+
+ The evaluation of 
+\begin_inset Formula $p_{\theta}(z|x)$
+\end_inset
+
+ is not possible even if we can sample from it.
+ Such difficulty leads to EM-like approaches (choose 
+\begin_inset Formula $q(z|x)$
+\end_inset
+
+ minimising KL and maximise the partial objective, i.e., the first term).
+ 
+\end_layout
+
+\begin_layout Standard
+Next, let us consider KSD minimisation (or any score-based loss).
+ Assuming some regularity conditions, the score function has the following
+ formula 
+\begin_inset Formula 
+\[
+\score{p_{\theta}}(x)=\EE_{z\sim p_{\theta}(z|x)}\nabla_{x}\log p_{\theta}(x,z).
+\]
+
+\end_inset
+
+ In fact, this is true for any distirbution 
+\begin_inset Formula $q(z|x)$
+\end_inset
+
+ whose expectation of the joint 
+\begin_inset Formula $x$
+\end_inset
+
+- score equals that of 
+\begin_inset Formula $p_{\theta}(z|x)$
+\end_inset
+
+, i.e., 
+\begin_inset Formula $\EE_{z\sim q(z|x)}\nabla_{x}\log p_{\theta}(x,z)=\EE_{z\sim p_{\theta}(z|x)}\nabla_{x}\log p_{\theta}(x,z)$
+\end_inset
+
+, 
+\begin_inset Formula $\mu-$
+\end_inset
+
+almost everywhere.
+ Thus, KSD minimisation is 
+\begin_inset Formula 
+\[
+\min_{\theta}\mathrm{KSD}[\score{p_{\theta}}]=\min_{\theta}\mathrm{KSD}[\EE_{z\sim q(z|x)}\nabla_{x}\log p_{\theta}(x,z)]
+\]
+
+\end_inset
+
+for any 
+\begin_inset Formula $q(z|x)$
+\end_inset
+
+ satisfying 
+\begin_inset Formula $\EE_{z\sim q(z|x)}\nabla_{x}\log p_{\theta}(x,z)=\EE_{z\sim p(z|x)}\nabla_{x}\log p_{\theta}(x,z)$
+\end_inset
+
+, where we denote the KSD computed with a score 
+\begin_inset Formula $\score p$
+\end_inset
+
+ by 
+\begin_inset Formula $\mathrm{KSD}[\score p]$
+\end_inset
+
+.
+ However, this formulation does not give us much; the constraint 
+\begin_inset Formula $\EE_{z\sim q(z|x)}\nabla_{x}\log p_{\theta}(x,z)=\EE_{z\sim p(z|x)}\nabla_{x}\log p_{\theta}(x,z)$
+\end_inset
+
+ is difficult to enforce in practice (
+\color red
+is it?)
+\color inherit
+.
+ 
+\end_layout
+
+\begin_layout Standard
+We turn back to the original formula of 
+\begin_inset Formula $\score{p_{\theta}}$
+\end_inset
+
+; with this, the KSD minimisation problem is
+\begin_inset Formula 
+\begin{align*}
+\min_{\theta}\mathrm{KSD}[\EE_{z\sim p_{\theta}(z|x)}\nabla_{x}\log p_{\theta}(x,z)] & =\min_{q,\theta}\mathrm{KSD}[\EE_{z\sim q(z|x)}\nabla_{x}\log p_{\theta}(x,z)]\\
+ & \qquad\text{s.t. }q(z|\cdot)=p_{\theta}(z|\cdot)\ \mu-\mathrm{a.e.}
+\end{align*}
+
+\end_inset
+
+ The equality is true as the objective value does not change for any 
+\begin_inset Formula $q$
+\end_inset
+
+ satisfying the constraint.
+ The constraint here is stronger than the previous one, but easier to realise
+ as we can equivalently express it in terms of the kernel conditional Stein
+ discrepancy (KCSD).
+ Consider a Lagrangian
+\begin_inset Formula 
+\[
+\mathcal{L}(q,\theta)=\mathrm{KSD}^{2}[\EE_{z\sim q(z|x)}\nabla_{x}\log p_{\theta}(x,z)]+\lambda\mathrm{KCSD}^{2}[q(z|x)||p_{\theta}(z|x)],\ \lambda\in\mathbb{R}.
+\]
+
+\end_inset
+
+ At a local minimum, this Lagrangian is stationary for some 
+\begin_inset Formula $\lambda^{*}$
+\end_inset
+
+; the form of the necessary condition is to be checked...
+\end_layout
+
+\begin_layout Standard
+The relation between the original and approximate KSDs can be expreessed
+ as 
+\begin_inset Formula 
+\begin{align*}
+\ksd p{\mu} & \leq\widetilde{\ksd p{\mu}}+\norm{\EE_{x\sim\mu}\left[k(\cdot,x)(\score p(x)-\tilde{\score p}(x))\right]}_{\mathcal{H}},\\
+ & =\widetilde{\ksd p{\mu}}+\sqrt{\EE_{x,x'}\left[(\score p(x)-\tilde{\score p}(x))k(x,x')(\score p(x')-\tilde{\score p}(x'))\right]},
+\end{align*}
+
+\end_inset
+
+where 
+\begin_inset Formula $\widetilde{\ksd p{\mu}}$
+\end_inset
+
+ is the KSD computed with the approximate score 
+\begin_inset Formula $\tilde{\score p}(x)=\EE_{z\sim q(z|x)}\nabla_{x}\log p(x,z).$
+\end_inset
+
+
+\end_layout
+
+\begin_layout Section
+Familar models
+\end_layout
+
+\begin_layout Standard
+KSCD is defined as 
+\end_layout
+
+\begin_layout Proposition
+\begin_inset Formula 
+\[
+D_{p}(r)=\mathbb{E}_{\mathbf{xz}}\mathbb{E}_{\mathbf{x'z'}}k(\mathbf{x},\mathbf{x}')H_{p}^{c}((\mathbf{x},\mathbf{z}),(\mathbf{x}',\mathbf{z}')),
+\]
+
+\end_inset
+
+where 
+\begin_inset Formula 
+\begin{align*}
+H_{p}^{c}((\mathbf{x},\mathbf{z}),(\mathbf{x}',\mathbf{z}')) & :=l(\mathbf{z},\mathbf{z}')\mathbf{s}_{p}^{\top}(\mathbf{z}|\mathbf{x})\mathbf{s}_{p}(\mathbf{z}'|\mathbf{x}')+\sum_{i=1}^{d_{z}}\frac{\partial^{2}}{\partial z_{i}\partial z_{i}'}l(\mathbf{z},\mathbf{z}')\\
+ & \phantom{:=}+\mathbf{s}_{p}^{\top}(\mathbf{z}|\mathbf{x})\nabla_{\mathbf{z}'}l(\mathbf{z},\mathbf{z}')+\mathbf{s}_{p}^{\top}(\mathbf{z}'|\mathbf{x}')\nabla_{\mathbf{z}}l(\mathbf{z},\mathbf{z}').
+\end{align*}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Consider PPCA 
+\begin_inset Formula 
+\begin{align*}
+p(\mathbf{\mathbf{x},\mathbf{z})} & =\Normal{\mathbf{x};A\mathbf{z}}{\sigma^{2}}\Normal{\mathbf{z};\mathbf{0}}I,\\
+\score p(\mathbf{z}|\mathbf{x}) & =-\left(I+\frac{A^{\top}A}{\sigma^{2}}\right)(\mathbf{z}-\beta\mathbf{x}),\\
+\score p(\mathbf{x|z)} & =-\left(\frac{\mathbf{x}-A\mathbf{z}}{\sigma}\right),\\
+\score p(\mathbf{x}) & =(\sigma^{2}I+AA^{\top})^{-1}\mathbf{x},
+\end{align*}
+
+\end_inset
+
+where 
+\begin_inset Formula $\beta=\left(I+\frac{A^{\top}A}{\sigma^{2}}\right)^{-1}\frac{A^{\top}}{\sigma^{2}}.$
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+For this, we have 
+\begin_inset Formula 
+\begin{align*}
+H_{p}^{c}((\mathbf{x},\mathbf{z}),(\mathbf{x}',\mathbf{z}')) & =(\mathbf{z}-\beta\mathbf{x})^{\top}\left(I+\frac{A^{\top}A}{\sigma^{2}}\right)^{\top}\left(I+\frac{A^{\top}A}{\sigma^{2}}\right)(\mathbf{z'}-\beta\mathbf{x}')l(\mathbf{z},\mathbf{z}')+\\
+ & \hphantom{=}+\sum_{i=1}^{d_{z}}\frac{\partial^{2}}{\partial z_{i}\partial z_{i}'}l(\mathbf{z},\mathbf{z}')-(\mathbf{z}-\beta\mathbf{x})^{\top}\left(I+\frac{A^{\top}A}{\sigma^{2}}\right)^{\top}\nabla_{\mathbf{z}'}l(\mathbf{z},\mathbf{z}')+\\
+ & \hphantom{=}-(\mathbf{z'}-\beta\mathbf{x}')^{\top}\left(I+\frac{A^{\top}A}{\sigma^{2}}\right)^{\top}\nabla_{\mathbf{z}}l(\mathbf{z},\mathbf{z}').
+\end{align*}
+
+\end_inset
+
+ The Stein kernel for PPCA (i.e., 
+\begin_inset Formula $\ksd p{\mu})$
+\end_inset
+
+'s kernel):
+\end_layout
+
+\begin_layout Standard
+\begin_inset Formula 
+\begin{align*}
+h_{p}(\mathbf{x},\mathbf{x'}) & =\mathbf{x^{\top}}(\sigma^{2}I+AA^{\top})^{-2}\mathbf{x}+\sum_{i=1}^{d_{x}}\frac{\partial^{2}}{\partial x_{i}\partial x_{i}'}k(\mathbf{x},\mathbf{x}')\\
+ & \hphantom{=}-\mathbf{x}^{\top}\left(\sigma^{2}I+AA^{\top}\right)^{-1}\nabla_{\mathbf{x}'}k(\mathbf{x},\mathbf{x}')-\mathbf{x}'\left(\sigma^{2}I+AA^{\top}\right)^{-1}{}^{\top}\nabla_{\mathbf{x}}k(\mathbf{x},\mathbf{x}').
+\end{align*}
+
+\end_inset
+
+ The Stein kernel for PPCA with the latent structure used: 
+\begin_inset Formula 
+\begin{align*}
+h_{p}((\mathbf{x,\mathbf{z}),(x',\mathbf{z'})}) & =\mathbf{\left(\frac{\mathbf{x}-A\mathbf{z}}{\sigma}\right)^{\top}}\left(\frac{\mathbf{x'}-A\mathbf{z'}}{\sigma}\right)k(\mathbf{x},\mathbf{x}')+\sum_{i=1}^{d_{x}}\frac{\partial^{2}}{\partial x_{i}\partial x_{i}'}k(\mathbf{x},\mathbf{x}')\\
+ & \hphantom{=}-\left(\frac{\mathbf{x}-A\mathbf{z}}{\sigma}\right)\nabla_{\mathbf{x}'}k(\mathbf{x},\mathbf{x}')-\left(\frac{\mathbf{x'}-A\mathbf{z}'}{\sigma}\right){}^{\top}\nabla_{\mathbf{x}}k(\mathbf{x},\mathbf{x}').
+\end{align*}
+
+\end_inset
+
+ 
+\end_layout
+
+\end_body
+\end_document
