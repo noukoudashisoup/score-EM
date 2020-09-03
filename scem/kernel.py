@@ -7,6 +7,7 @@ from scem import util
 from abc import ABCMeta
 from abc import abstractmethod
 
+
 class Kernel(object, metaclass=ABCMeta):
     """Abstract class for kernels. Inputs to all methods are numpy arrays."""
 
@@ -40,27 +41,26 @@ class KSTKernel(Kernel, metaclass=ABCMeta):
 
     @abstractmethod
     def gradX_Y(self, X, Y, dim):
-       """
-       Compute the gradient with respect to the dimension dim of X in k(X, Y).
+        """
+        Compute the gradient with respect to the dimension dim of X in k(X, Y).
 
-       X: nx x d
-       Y: ny x d
+        X: nx x d
+        Y: ny x d
 
-       Return a numpy array of size nx x ny.
-       """
-       pass
+        Return a numpy array of size nx x ny.
+        """
+        pass
 
     def gradY_X(self, X, Y, dim):
-       """
-       Compute the gradient with respect to the dimension dim of Y in k(X, Y).
+        """
+        Compute the gradient with respect to the dimension dim of Y in k(X, Y).
 
-       X: nx x d
-       Y: ny x d
+        X: nx x d
+        Y: ny x d
 
-       Return a numpy array of size nx x ny.
-       """
-       return self.gradX_Y(Y, X, dim).T
-
+        Return a numpy array of size nx x ny.
+        """
+        return self.gradX_Y(Y, X, dim).T
 
     @abstractmethod
     def gradXY_sum(self, X, Y):
@@ -76,6 +76,7 @@ class KSTKernel(Kernel, metaclass=ABCMeta):
         pass
 
 # end KSTKernel
+
 
 class PTKGauss(KSTKernel):
     """
