@@ -1,5 +1,5 @@
 import torch
-from scem import gen, stein, kernel
+from scem import gen, stein, kernel, ebm
 from scem import util
 
 
@@ -18,7 +18,7 @@ def main():
     dz = 2
     W = torch.randn([dx, dz])
     var = torch.tensor([2.0])
-    ppca = gen.PPCA(W, var)
+    ppca = ebm.PPCA(W, var)
     Z = torch.randn(n, dz)
     X = Z @ W.T + torch.randn(n, dx) * var**0.5
 
@@ -50,7 +50,7 @@ def main():
     for t in range(T):
         Z = cs.sample(1, X, seed+t)
         Z = Z.squeeze(0)
-        med2_z = util.pt_meddistance(Z, seed+1)
+        med2_z = util.pt_meddistance(Z, seed+1)**2
         kz.sigma2 = torch.tensor([med2_z])
         loss = stein.kscd_ustat(
             X, Z, ppca.posterior_score, kx, kz)
@@ -59,7 +59,7 @@ def main():
         loss.backward()
         optimizer.step()
     
-        if t%200 == 0:
+        if (t+1)%200 == 0:
             marginal_score_mse = (torch.mean(
                 (approx_score(X, n_sample=n_sample)-S)**2))
             print('(iter, loss, score mse): {}, {}. {}'.format(t, loss, marginal_score_mse))

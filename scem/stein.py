@@ -5,7 +5,7 @@ for computing stein discrepancies.
 
 """
 import torch
-from scem import gen
+
 
 def pscore_continuous(X, Z, energy_fn):
     """The derivate of the energy function
@@ -43,6 +43,7 @@ def pscore_continuous(X, Z, energy_fn):
     assert G.shape[1] == dz
     return G
 
+
 def pscore_lattice(X, Z, energy_fn):
     # TODO define
     pass
@@ -53,6 +54,7 @@ pscore_dict = {
     'continuous': pscore_continuous,
     'lattice': pscore_lattice,
 }
+
 
 def ksd_ustat_gram(X, S, k):
     """Returns the gram matrix of 
@@ -92,6 +94,7 @@ def ksd_ustat(X, score_fn, k):
     stat = (torch.sum(H) - torch.sum(torch.diag(H)))
     stat /= (n*(n-1))
     return stat
+
 
 def kscd_ustat(X, Z, cond_score_fn, k, l):
     n = X.shape[0]
@@ -142,7 +145,7 @@ class ApproximateScore:
 
 def main():
     import kernel
-    from gen import PPCA
+    from scem.ebm import PPCA
     seed = 13
     torch.manual_seed(seed)
     n = 100
