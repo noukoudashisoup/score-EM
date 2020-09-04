@@ -32,14 +32,18 @@ class CSNoiseTransformer(ConditionalSampler,
         super(CSNoiseTransformer, self).__init__()
 
     @abstractmethod
-    def forward(self, noise, *input):
+    def forward(self, noise, X, *args, **kwargs):
         """Map transforming noise
         """
         pass
 
     @abstractmethod
-    def sample_noise(self, n_sample, *input, seed=13):
-        """Sample from the noise distribution"""
+    def sample_noise(self, n_sample, n, seed=13):
+        """Sample from the noise distribution
+
+        Returns:
+            torch.Tensor of sizee [n_sample, n, in_shape] 
+        """
         pass
 
     @abstractmethod
@@ -120,26 +124,26 @@ def main():
     from scem.ebm import PPCA
     seed = 13
     torch.manual_seed(seed)
-    n = 13
+    n = 200
     dx = 4
     dz = 2
     X = torch.randn([n, dx])
     Z = torch.ones([n, dz])
     W = torch.randn([dx, dz])
-    var = torch.tensor([2.0])
+    var = torch.tensor([10.0])
     ppca = PPCA(W, var)
 
-    s = ppca.posterior_score(X, Z)
+    s = ppca.score_joint_latent(X, Z)
     ppca_post_score = -(Z@W.T@W-X@W)/var - Z
     cs = PTPPCAPosterior(ppca)
     # cs.apply(init_weights)
     post_score_mse = torch.mean((s-ppca_post_score)**2)
     print('Posterior score mse: {}'.format(post_score_mse))
 
-    n_sample = 800
+    n_sample = 300
     assert isinstance(ppca, PPCA)
     approx_score = stein.ApproximateScore(
-        ppca.energy_grad_obs, cs)
+        ppca.score_joint_obs, cs)
     marginal_score_mse = (torch.mean(
         (approx_score(X, n_sample=n_sample)-ppca.score_marginal_obs(X))**2))
     print('Marginal score mse: {}'.format(marginal_score_mse))

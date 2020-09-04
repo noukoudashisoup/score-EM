@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 
+
 class NumpySeedContext(object):
     """
     A context manager to reset the random seed by numpy.random.seed(..).
@@ -93,3 +94,40 @@ def pt_meddistance(X, subsample=None, seed=283):
         # recursion just once
         return pt_meddistance(X[ind], None, seed=seed)
 
+
+def gradient(func, idx, tensors):
+    # variable to take grad
+    X = tensors[idx]
+    if X.is_leaf:
+        X.requires_grad = True
+    func_values = func(*tensors)
+    func_sum = torch.sum(func_values)
+    Gs = torch.autograd.grad(func_sum, X,
+                             retain_graph=True,
+                             only_inputs=True
+                             )
+    G = Gs[0]
+
+    n, dx = X.shape
+    assert G.shape[0] == n
+    assert G.shape[1] == dx
+    return G
+
+
+def forward_diff(func, idx,
+                 tensors, lattice_ranges,
+                 shift=1):
+    # variable to take forward-difference
+    X = tensors[idx]
+    func_values = func(*tensors) 
+    d = len(X.shape)
+    assert d == len(lattice_ranges)
+
+    D = torch.empty(X.shape,
+                    dtype=func_values.dtype)
+    for j in range(d):
+        X_ = torch.remainder(X[:, j]+shift, lattice_ranges[j])
+        tensors_ = tensors.copy()
+        tensors_[idx] = X_
+        D[:, j] = func(X_) - func(X)
+    return D
