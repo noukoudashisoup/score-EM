@@ -164,7 +164,7 @@ def score_obs_lattice(X, Z, ebm):
     ls = ebm.lattice_ranges['obs']
     D = util.forward_diff(ebm.forward, 0,
                           [X, Z], ls)
-    return D/ebm(X, Z)
+    return torch.exp(D) - 1.
 
 
 def score_latent_lattice(X, Z, ebm):
@@ -173,7 +173,7 @@ def score_latent_lattice(X, Z, ebm):
     ls = ebm.lattice_ranges['latent']
     D = util.forward_diff(ebm.forward, 1,
                           [X, Z], ls)
-    return D/ebm(X, Z)
+    return torch.exp(D) - 1.
 
 
 # Dictionary of posterior score functions
