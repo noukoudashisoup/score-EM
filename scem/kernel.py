@@ -78,6 +78,61 @@ class KSTKernel(Kernel, metaclass=ABCMeta):
 # end KSTKernel
 
 
+class DKSTKernel(Kernel):
+    """
+    Interface specifiying methods a kernel has to implement to be used with 
+    the Discrete Kernelized Stein discrepancy test of Yang et al., 2018.
+    """
+
+    def __init__(self, lattice_ranges, d):
+        """Require subclasses to have n_values and d """
+        self.lattice_ranges = lattice_ranges
+        self._d = d
+    
+    def gradX_Y(self, X, Y, dim, shift=-1):
+        """
+        Default: compute the (cyclic) backward difference with respect to 
+        the dimension dim of X in k(X, Y).
+
+        X: nx x d
+        Y: ny x d
+
+        Return a numpy array of size nx x ny.
+        """
+
+        X_ = X.copy()
+        X_[:, dim] = torch.remainder(X_[:, dim]+shift, self.lattice_ranges[dim])
+        return (self.eval(X, Y) - self.eval(X_, Y))
+
+    def gradXY_sum(self, X, Y, shift=-1):
+        """
+        Compute the trace term in the kernel function in Yang et al., 2018. 
+
+        X: nx x d numpy array.
+        Y: ny x d numpy array. 
+
+        Return a nx x ny numpy array of the derivatives.
+        """
+        nx, d = X.shape
+        ny, _ = Y.shape
+        K = torch.zeros((nx, ny))
+        lattice_ranges = self.lattice_ranges
+        for j in range(d):
+            X_ = X.copy()
+            Y_ = Y.copy()
+            X_[:, j] = (X[:, j]+shift % lattice_ranges[j])
+            Y_[:, j] = (Y[:, j]+shift % lattice_ranges[j])
+            K += (self.eval(X, Y) + self.eval(X_, Y_)
+                  - self.eval(X_, Y) - self.eval(X, Y_))
+        return K
+
+    def dim(self):
+        return self._d
+
+# end DKSTKernel
+
+
+
 class PTKGauss(KSTKernel):
     """
     Pytorch implementation of the isotropic Gaussian kernel.
@@ -260,4 +315,42 @@ class KIMQ(KSTKernel):
         T2 = -2.0*b*d*c2D2**(b-1)
         return T1 + T2
 
+
+class KHamming(DKSTKernel):
+
+    def __init__(self, lattice_ranges):
+        """
+        Args:
+        - lattice_ranges: a positive integer/ integer array specifying
+        the number of possible of the discrete variable. 
+        """
+        self.lattice_ranges = lattice_ranges
+        self.d = len(lattice_ranges)
+
+    def eval(self, X, Y):
+        """
+        Evaluate the kernel on data X and Y
+        Args: 
+            X: n x d where each row represents one point
+            Y: n x d
+        Return: 
+            a n x n numpy array.
+        """
+        assert X.shape[1] == Y.shape[1]
+        d = self.d
+        hamm_dist = torch.cdist(X, Y, 0) / d
+        return torch.exp(-hamm_dist)
+
+    def pair_eval(self, X, Y):
+        """Evaluate k(x1, y1), k(x2, y2), ...
+        
+        X: n x d where each row represents one point
+        Y: n x d
+        return a 1d numpy array of length n.
+        """
+        assert X.shape == Y.shape
+        n, d = X.shape
+        H = torch.zeros((n, d))
+        H[X!=Y] = 1
+        return torch.exp(-torch.mean(H, axis=1))
 

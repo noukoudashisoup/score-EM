@@ -40,7 +40,7 @@ def main():
 
     # approximate score function
     approx_score = stein.ApproximateScore(
-        ppca.energy_grad_obs, cs)
+        ppca.score_joint_obs, cs)
 
 
     # KSCD training
@@ -53,7 +53,7 @@ def main():
         med2_z = util.pt_meddistance(Z, seed+1)**2
         kz.sigma2 = torch.tensor([med2_z])
         loss = stein.kscd_ustat(
-            X, Z, ppca.posterior_score, kx, kz)
+            X, Z, ppca.score_joint_latent, kx, kz)
         
         optimizer.zero_grad()
         loss.backward()
