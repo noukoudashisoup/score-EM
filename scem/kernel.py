@@ -352,5 +352,5 @@ class KHamming(DKSTKernel):
         n, d = X.shape
         H = torch.zeros((n, d))
         H[X!=Y] = 1
-        return torch.exp(-torch.mean(H, axis=1))
+        return torch.exp(-torch.mean(H, dim=1))
 
