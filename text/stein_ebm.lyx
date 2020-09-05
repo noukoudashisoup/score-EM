@@ -673,6 +673,118 @@ h_{p}((\mathbf{x,\mathbf{z}),(x',\mathbf{z'})}) & =\mathbf{\left(\frac{\mathbf{x
 
 \end_inset
 
+
+\end_layout
+
+\begin_layout Section
+Approximate posterior for discrete latent variables
+\end_layout
+
+\begin_layout Standard
+If a model has a discrete-valued latent variable 
+\begin_inset Formula $z$
+\end_inset
+
+, constructing an approximate posterior 
+\begin_inset Formula $q(z|x)$
+\end_inset
+
+ requires some consideration.
+ We consider a situation where 
+\begin_inset Formula $z$
+\end_inset
+
+ belongs to a (finite) integer lattice, i.e., 
+\begin_inset Formula $z\in\{1,\dots,K\}^{d_{z}}\eqqcolon[K]^{d_{z}}$
+\end_inset
+
+ with 
+\begin_inset Formula $d_{z,}K\in\mathbb{N}$
+\end_inset
+
+.
+ Consturcting such a discrete distribution is difficult particularly when
+ 
+\begin_inset Formula $d_{z}$
+\end_inset
+
+ and 
+\begin_inset Formula $K$
+\end_inset
+
+ are high.
+ First, the probability table, typically required for sampling, is expensive
+ to store.
+ Second, conditional distributions are usaully functions of 
+\begin_inset Formula $x$
+\end_inset
+
+; Our prime choise such as softmax functions cannot be normalised to give
+ a valid probability table (or tensor).
+ Due to these challenges, as far as I am concerned, there is a dearth of
+ methods to consturct approximte posteriors in this scenario.
+\end_layout
+
+\begin_layout Standard
+One way to address these challenges is to use simple distributions such
+ as (component-wise) independent categorical distributions.
+ A second way is to use the near-deterministic approach detailed in the
+ following.
+ Consider a conditional distriubtion of the form: 
+\begin_inset Formula 
+\[
+Q_{x,\psi}=\sum_{j=1}^{m}w_{j}\delta_{f_{j,\psi}(x)},
+\]
+
+\end_inset
+
+ where 
+\begin_inset Formula $f_{j,\psi}:\mathbb{R}^{d_{x}}\to[K]^{d_{x}}.$
+\end_inset
+
+ The sampling from this distribution proceeds as follows: for a given 
+\begin_inset Formula $x\in\mathbb{R}^{d_{x}}$
+\end_inset
+
+, we (deterministically) generate 
+\begin_inset Formula $m$
+\end_inset
+
+ points in the latent space, and sample a single latent point according
+ to 
+\begin_inset Formula $\mathrm{Cat}(\{w_{j}\}_{j=1}^{m})$
+\end_inset
+
+.
+ If there are sufficiently many points, this could be a reasonable approximation
+ to the posterior; in a very high-dimensional latent (which may not appear
+ in practical applications though) space, we might be allowed to expect
+ 
+\begin_inset Formula $p(z|x)$
+\end_inset
+
+ is supported on a sparse set of 
+\begin_inset Formula $z$
+\end_inset
+
+'s.
+ 
+\end_layout
+
+\begin_layout Standard
+The problem with this approach is that function takes discrete-values, resulting
+ in a non-differentiable function.
+ For instance, if each 
+\begin_inset Formula $f_{j,\psi}$
+\end_inset
+
+ involves taking 
+\begin_inset Formula $\arg\max$
+\end_inset
+
+, then we cannot optimise with back-propagation.
+ A solution is to relax the max operation with softmax.
+ Another concern is that the DKSD involves remainder (mod division) opeartions.
  
 \end_layout
 
