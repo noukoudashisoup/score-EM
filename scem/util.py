@@ -96,6 +96,23 @@ def pt_meddistance(X, subsample=None, seed=283):
 
 
 def gradient(func, idx, tensors):
+    """Take the gradient of func 
+    w.r.t. tensors[idx].
+    func is 
+
+    Args:
+        func (Callable): 
+            assumed to be the function of *tensors.
+        idx (int):
+            index of the tensor w.r.t which
+            the gradient is taken
+        tensors (list or tuple ): 
+            sequence of tensors of sizes [n, di]
+            where di is the dims of ith tensor
+
+    Returns:
+        [type]: [description]
+    """
     # variable to take grad
     X = tensors[idx]
     if X.is_leaf:
@@ -108,9 +125,10 @@ def gradient(func, idx, tensors):
                              )
     G = Gs[0]
 
-    n, dx = X.shape
-    assert G.shape[0] == n
-    assert G.shape[1] == dx
+    # n, dx = X.shape
+    # assert G.shape[0] == n
+    # assert G.shape[1] == dx
+    assert G.shape == X.shape
     return G
 
 
@@ -118,16 +136,15 @@ def forward_diff(func, idx,
                  tensors, lattice_ranges,
                  shift=1):
     # variable to take forward-difference
+    func_values = func(*tensors)
     X = tensors[idx]
-    func_values = func(*tensors) 
-    d = len(X.shape)
-    assert d == len(lattice_ranges)
-
     D = torch.empty(X.shape,
                     dtype=func_values.dtype)
+    d = X.shape[1]
     for j in range(d):
-        X_ = torch.remainder(X[:, j]+shift, lattice_ranges[j])
+        X_ = tensors[idx].clone()
+        X_[:, j] = (X[:, j]+shift) % lattice_ranges[j]
         tensors_ = tensors.copy()
         tensors_[idx] = X_
-        D[:, j] = func(X_) - func(X)
+        D[:, j] = func(*tensors_) - func_values
     return D

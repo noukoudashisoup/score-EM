@@ -4,7 +4,6 @@ energy-based (unnormalised density) models
 
 import torch
 import torch.nn as nn
-from scem import stein
 from scem import util
 from abc import ABCMeta, abstractmethod
 from torch.nn.parameter import Parameter
@@ -161,7 +160,8 @@ def score_obs_cont(X, Z, ebm):
 def score_obs_lattice(X, Z, ebm):
     assert isinstance(X, torch.Tensor)
     assert isinstance(Z, torch.Tensor)
-    ls = ebm.lattice_ranges['obs']
+    which_var = 'obs'
+    ls = ebm.lattice_ranges(which_var)
     D = util.forward_diff(ebm.forward, 0,
                           [X, Z], ls)
     return torch.exp(D) - 1.
@@ -170,7 +170,8 @@ def score_obs_lattice(X, Z, ebm):
 def score_latent_lattice(X, Z, ebm):
     assert isinstance(X, torch.Tensor)
     assert isinstance(Z, torch.Tensor)
-    ls = ebm.lattice_ranges['latent']
+    which_var = 'latent'
+    ls = ebm.lattice_ranges(which_var)
     D = util.forward_diff(ebm.forward, 1,
                           [X, Z], ls)
     return torch.exp(D) - 1.
@@ -229,29 +230,30 @@ class GaussianRBM(LatentEBM, DiscreteModel):
     """Class representing Gaussian Restricted Boltzmann
     Machines (GRBMs).
 
-    \log p(x,z) = -x^T W z -b^Tx -c^Tz-||x||^2 
+    \log p(x,z) = -x^T W z -b^Tx -c^Tz-||x||^2
 
-    Attritbutes: 
+    Attritbutes:
         W:
             weight matrix, initlaised at
             the given value
-        b: 
+        b:
             coefficent vector for the observable
             initlaised at the given value
-        c: 
+        c:
             coefficient vector for the latent,
             initlaised at the given value
     """
     var_type_obs = 'continuous'
-    var_type_latent = 'obs'
+    var_type_latent = 'lattice'
 
     def __init__(self, W, b, c):
+        super(GaussianRBM, self).__init__()
         self.W = Parameter(W)
         self.b = Parameter(b)
         self.c = Parameter(c)
         self.dx = W.shape[0]
         self.dz = W.shape[1]
-        ls_latent_ = 2*torch.ones(self.dz,
+        ls_latent_ = 2*torch.ones([self.dz],
                                   dtype=torch.int)
         self.lattice_ranges_ = {'latent': ls_latent_}
 
@@ -259,12 +261,10 @@ class GaussianRBM(LatentEBM, DiscreteModel):
         W = self.W
         b = self.b
         c = self.c
-        log_joint = -X @ W @ Z.T
-        log_joint += -X.dot(b)
-        log_joint += -Z.dot(c)
-        log_joint += - torch.sum(X**2, axis=1)
+        log_joint = -torch.sum((X@W+c) * Z, dim=1)
+        log_joint += -X@b - torch.sum(X**2, axis=1)
         return log_joint
-    
+
     def lattice_ranges(self, key):
         return self.lattice_ranges_[key]
 
@@ -298,8 +298,8 @@ def main():
     W = torch.randn([dx, dz])
     var = torch.tensor([2.0])
     ppca = PPCA(W, var)
-    s1 = ppca.score_joint_latent(X)
-    
+    s1 = ppca.score_joint_latent(X, Z)
+    s2 = ppca.score_joint_obs(X, Z)
 
 if __name__ == '__main__':
     main()

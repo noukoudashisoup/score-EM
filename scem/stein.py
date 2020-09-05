@@ -92,8 +92,13 @@ class ApproximateScore:
         Z_batch = cs.sample(n_sample, X, seed=seed)
         # Assuming the last two dims are [n, dx]
         # TODO this is not efficient
-        JS = [js(X, Z_batch[i]) for i in range(n_sample)]
-        return torch.mean(torch.stack(JS), dim=0)
+        #JS = [js(X, Z_batch[i]) for i in range(n_sample)]
+        #return torch.mean(torch.stack(JS), dim=0)
+
+        # TODO this could be memory-intense
+        X_ = torch.stack([X.clone() for i in range(n_sample)])
+        JS = js(X_, Z_batch)
+        return torch.mean(JS, dim=0)
 
 
 def main():
