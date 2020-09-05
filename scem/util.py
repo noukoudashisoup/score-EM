@@ -118,16 +118,15 @@ def forward_diff(func, idx,
                  tensors, lattice_ranges,
                  shift=1):
     # variable to take forward-difference
+    func_values = func(*tensors)
     X = tensors[idx]
-    func_values = func(*tensors) 
-    d = len(X.shape)
-    assert d == len(lattice_ranges)
-
     D = torch.empty(X.shape,
                     dtype=func_values.dtype)
+    d = X.shape[1]
     for j in range(d):
-        X_ = torch.remainder(X[:, j]+shift, lattice_ranges[j])
+        X_ = tensors[idx].clone()
+        X_[:, j] = (X[:, j]+shift) % lattice_ranges[j]
         tensors_ = tensors.copy()
         tensors_[idx] = X_
-        D[:, j] = func(X_) - func(X)
+        D[:, j] = func(*tensors_) - func_values
     return D
