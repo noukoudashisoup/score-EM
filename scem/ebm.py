@@ -290,7 +290,8 @@ class GaussianRBM(LatentEBM):
     def score_marginal_obs(self, X):
         S = (-2.*X - self.b)
         a = -(X @ self.W + self.c)
-        S += -(torch.exp(a) / (torch.exp(a)-1)) @ self.W.T
+        v = (torch.exp(a) / (torch.exp(a)+1))
+        S += torch.einsum('ij, jl->il', v, self.W.T)
         return S
 
 
