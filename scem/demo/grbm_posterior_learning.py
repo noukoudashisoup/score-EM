@@ -9,13 +9,13 @@ def init_weights(m):
         m.bias.data.fill_(0.)
 
 
-# learning PPCA posterior with kcsd
+# learning GRBM posterior with kcsd
 def main():
     seed = 13
     torch.manual_seed(seed)
     n = 300
-    dx = 10
-    dz = 10
+    dx = 10 
+    dz = 3
     n_cat = 2
     X = torch.randn([n, dx])
     W = torch.randn([dx, dz]) / (dx * dz)**0.5
@@ -27,16 +27,16 @@ def main():
     kx = kernel.PTKGauss(torch.tensor([med2]))
 
     # q(z|x)
-    cs = gen.CSTwoLayerGRBMQ(grbm)
+    cs = gen.CSGRBMBernoulliFamily(dx, dz)
     cs.apply(init_weights)
     
     # optimizer settings
-    learning_rate = 1e-5
-    weight_decay = 1e-4
+    learning_rate = 1e-3
+    weight_decay = 0.
     optimizer = torch.optim.Adam(cs.parameters(), lr=learning_rate,
                                  weight_decay=weight_decay)
 
-    # evaluate true log p(X) for comparison
+    # evaluate true grad log p(X) for comparison
     S = grbm.score_marginal_obs(X)
 
     # approximate score function
@@ -46,7 +46,8 @@ def main():
     # kcsd training
     T = 2000
     n_sample = 200
-    kz = kernel.OHKGauss(n_cat, torch.tensor([1.0]))
+    kz = kernel.OHKGauss(n_cat, torch.tensor([dz*1.0]))
+
     for t in range(T):
         Z = cs.sample(1, X, seed+t)
         Z = Z.squeeze(0)
@@ -57,7 +58,7 @@ def main():
         loss.backward()
         optimizer.step()
     
-        if (t+1)%200 == 0:
+        if t%100 == 0:
             cs = cs.eval()
             marginal_score_mse = (torch.mean(
                 (approx_score(X, n_sample=n_sample)-S)**2))

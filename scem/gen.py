@@ -122,34 +122,26 @@ class PTCSGaussLinearMean(CSNoiseTransformer):
         return (self.dz, self.dz)
 
 
-class CSTwoLayerGRBMQ(ConditionalSampler,
-                                 nn.Module):
+class CSGRBMBernoulliFamily(ConditionalSampler,
+                            nn.Module):
     
     n_cat = 2
 
-    def __init__(self, grbm, n_particles=10):
-        super(CSTwoLayerGRBMQ, self).__init__()
-        self.grbm = grbm
-        dx, dz = grbm.W.shape
-        d1 = 64
-        d2 = 64
-        self.feat = nn.Sequential(
-            nn.Linear(dx, d1),
-            nn.ReLU(),
-            nn.Linear(d1, d2),
-            nn.ReLU(),
-        )
-        self.probs = [
-            nn.Sequential(
-                nn.Linear(d2, 2),
+    def __init__(self, dx, dz):
+        super(CSGRBMBernoulliFamily, self).__init__()
+        self.dx = dx
+        self.dz = dz
+        self.probs = nn.ModuleList(
+            [nn.Sequential(
+                nn.Linear(dx, self.n_cat),
                 nn.Softmax(dim=-1),
             )
-            for _ in range(dz)
-        ]
+             for _ in range(dz)
+             ]
+        )
 
     def forward(self, X):
-        feat = self.feat(X)
-        out = [f(feat) 
+        out = [f(X) 
                for f in self.probs]
         out = torch.stack(out, dim=0)
         return out
@@ -157,15 +149,34 @@ class CSTwoLayerGRBMQ(ConditionalSampler,
     def sample(self, n_sample, X,
                seed=3, *args, **kwargs):
         probs = self.forward(X)
-        temp = torch.tensor([0.5])
+        temp = torch.tensor([1.])
         if self.training:
             m = dists.RelaxedOneHotCategorical(
                 temp,
                 probs,
             )
+            return m.rsample([n_sample]).permute(0, 2, 1, 3)
         else:
             m = dists.OneHotCategorical(probs)
-        return m.sample([n_sample]).permute(0, 2, 1, 3)
+            return m.sample([n_sample]).permute(0, 2, 1, 3)
+
+
+class CSGRBMPosterior(ConditionalSampler):
+
+    def __init__(self, grbm):
+        self.W = grbm.W
+        self.b = grbm.b
+        self.c = grbm.c
+
+    def sample(self, n_sample, X, seed=13):
+        W = self.W
+        c = self.c
+        probs = torch.sigmoid(-(X@W+c))
+        probs = torch.stack([1.-probs, probs], dim=2)
+        m = dists.OneHotCategorical(probs)
+        with util.TorchSeedContext(seed):
+            H = m.sample([n_sample])
+        return H
 
 
 def main():
