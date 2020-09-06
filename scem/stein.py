@@ -21,7 +21,8 @@ def ksd_ustat_gram(X, S, k):
     Returns:
         torch.tensor: n x n tensor
     """
-    n, dx = X.shape
+    n = X.shape[0]
+    dx = X.shape[1]
     # n x dy matrix of gradients
     # n x n
     gram_score = S @ S.T
@@ -49,7 +50,7 @@ def ksd_ustat(X, score_fn, k):
     return stat
 
 
-def kscd_ustat(X, Z, cond_score_fn, k, l):
+def kcsd_ustat(X, Z, cond_score_fn, k, l):
     n = X.shape[0]
     assert n == Z.shape[0]
 
@@ -92,13 +93,13 @@ class ApproximateScore:
         Z_batch = cs.sample(n_sample, X, seed=seed)
         # Assuming the last two dims are [n, dx]
         # TODO this is not efficient
-        #JS = [js(X, Z_batch[i]) for i in range(n_sample)]
-        #return torch.mean(torch.stack(JS), dim=0)
+        JS = [js(X, Z_batch[i]) for i in range(n_sample)]
+        return torch.mean(torch.stack(JS), dim=0)
 
         # TODO this could be memory-intense
-        X_ = torch.stack([X.clone() for i in range(n_sample)])
-        JS = js(X_, Z_batch)
-        return torch.mean(JS, dim=0)
+        # X_ = torch.stack([X.clone() for i in range(n_sample)])
+        # JS = js(X_, Z_batch)
+        # return torch.mean(JS, dim=0)
 
 
 def main():
@@ -125,7 +126,7 @@ def main():
 
     Z = torch.randn([n, dz])
     X = Z @ W.T + var**0.5 * torch.randn([n, dx])
-    print(kscd_ustat(X, Z, cond_score_fn, k, l))
+    print(kcsd_ustat(X, Z, cond_score_fn, k, l))
 
 
 if __name__ == '__main__':

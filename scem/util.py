@@ -176,7 +176,7 @@ def forward_diff_onehot(func, idx,
     for j in range(d):
         X_ = tensors[idx].clone()
         X_[:, j] = X[:, j] @ perm
-        tensors_ = tensors.clone()
+        tensors_ = tensors.copy()
         tensors_[idx] = X_
         D[:, j] = func(*tensors_) - func_values
     return D

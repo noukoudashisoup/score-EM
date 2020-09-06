@@ -1,6 +1,8 @@
 """Module for generative models"""
 
 import torch
+import torch.nn as nn
+import torch.distributions as dists
 from scem import stein
 from scem import util
 from abc import ABCMeta, abstractmethod
@@ -26,7 +28,7 @@ class ConditionalSampler(metaclass=ABCMeta):
 
 
 class CSNoiseTransformer(ConditionalSampler,
-                         torch.nn.Module):
+                         nn.Module):
 
     def __init__(self):
         super(CSNoiseTransformer, self).__init__()
@@ -89,14 +91,14 @@ class PTCSGaussLinearMean(CSNoiseTransformer):
         dx (int): dimensionality of the observable
         variable
         dz (int): dimensionality of the latent
-        mean_fn(torch.nn.Module):
-            mean function, torch.nn.Linear
+        mean_fn(nn.Module):
+            mean function, nn.Linear
         W: torch parameter, matrix of size [dz, dz]
     """
     
     def __init__(self, dx, dz):
         super(PTCSGaussLinearMean, self).__init__()
-        self.mean_fn = torch.nn.Linear(dx, dz)
+        self.mean_fn = nn.Linear(dx, dz)
         self.W = Parameter(torch.eye(dz))
         self.dx = dx
         self.dz = dz
@@ -118,6 +120,52 @@ class PTCSGaussLinearMean(CSNoiseTransformer):
 
     def in_out_shapes(self):
         return (self.dz, self.dz)
+
+
+class CSTwoLayerGRBMQ(ConditionalSampler,
+                                 nn.Module):
+    
+    n_cat = 2
+
+    def __init__(self, grbm, n_particles=10):
+        super(CSTwoLayerGRBMQ, self).__init__()
+        self.grbm = grbm
+        dx, dz = grbm.W.shape
+        d1 = 64
+        d2 = 64
+        self.feat = nn.Sequential(
+            nn.Linear(dx, d1),
+            nn.ReLU(),
+            nn.Linear(d1, d2),
+            nn.ReLU(),
+        )
+        self.probs = [
+            nn.Sequential(
+                nn.Linear(d2, 2),
+                nn.Softmax(dim=-1),
+            )
+            for _ in range(dz)
+        ]
+
+    def forward(self, X):
+        feat = self.feat(X)
+        out = [f(feat) 
+               for f in self.probs]
+        out = torch.stack(out, dim=0)
+        return out
+
+    def sample(self, n_sample, X,
+               seed=3, *args, **kwargs):
+        probs = self.forward(X)
+        temp = torch.tensor([0.5])
+        if self.training:
+            m = dists.RelaxedOneHotCategorical(
+                temp,
+                probs,
+            )
+        else:
+            m = dists.OneHotCategorical(probs)
+        return m.sample([n_sample]).permute(0, 2, 1, 3)
 
 
 def main():

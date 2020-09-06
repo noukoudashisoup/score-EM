@@ -409,13 +409,14 @@ class DKSTOnehotKernel(Kernel):
         """
         Compute the trace term in the kernel function in Yang et al., 2018. 
 
-        X: nx x d numpy array.
-        Y: ny x d numpy array. 
+        X: nx x d x n_cat numpy array.
+        Y: ny x d x n_cat numpy array. 
 
         Return a nx x ny numpy array of the derivatives.
         """
-        nx, d = X.shape
-        ny, _ = Y.shape
+        nx = X.shape[0]
+        d = X.shape[1]
+        ny = Y.shape[0]
         K = torch.zeros((nx, ny))
         perm = util.cyclic_perm_matrix(self.n_cat, shift)
         for j in range(d):
@@ -438,33 +439,37 @@ class OHKGauss(DKSTOnehotKernel):
         - lattice_ranges: a positive integer/ integer array specifying
         the number of possible of the discrete variable. 
         """
-        super(DKSTOnehotKernel, self).__init__(n_cat)
+        super(DKSTOnehotKernel, self).__init__()
+        self.n_cat = n_cat
         self.sigma2 = sigma2
 
     def eval(self, X, Y):
         """
         Evaluate the kernel on data X and Y
         Args: 
-            X: n x d where each row represents one point
-            Y: n x d
+            X: n x d x n_cat where each row represents one point
+            Y: n x d x n_cat
         Return: 
             a n x n numpy array.
         """
         assert X.shape[1] == Y.shape[1]
         assert X.shape[2] == X.shape[2]
-        diff = X - Y
-        D2 = torch.einsum('ijk,lmn-> il', diff, diff)
+        nx = X.shape[0]
+        ny = Y.shape[0]
+        X_ = X.reshape(nx, -1)
+        Y_ = Y.reshape(ny, -1)
+        D2 = util.pt_dist2_matrix(X_, Y_)
         return torch.exp(-D2/self.sigma2)
 
     def pair_eval(self, X, Y):
         """Evaluate k(x1, y1), k(x2, y2), ...
         
-        X: n x d where each row represents one point
-        Y: n x d
+        X: n x d x n_cat where each row represents one point
+        Y: n x d x n_cat
         return a 1d numpy array of length n.
         """
         assert X.shape == Y.shape
         n = X.shape[0]
         diff2 = (X - Y)**2
-        d2sum = np.exp(-torch.sum(diff2.view(n, -1), axis=1)
+        d2sum = torch.exp(-torch.sum(diff2.view(n, -1), axis=1))
         return torch.exp(-d2sum/self.sigma2)
