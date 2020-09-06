@@ -144,7 +144,7 @@ def forward_diff(func, idx,
     for j in range(d):
         X_ = tensors[idx].clone()
         X_[:, j] = (X[:, j]+shift) % lattice_ranges[j]
-        tensors_ = tensors.copy()
+        tensors_ = tensors.clone()
         tensors_[idx] = X_
         D[:, j] = func(*tensors_) - func_values
     return D
@@ -171,13 +171,27 @@ def forward_diff_onehot(func, idx,
     D = torch.empty(X.shape[:-1],
                     dtype=func_values.dtype)
     _, d, K = X.shape
-    perm = torch.eye(K)
-    perm = perm[(torch.arange(K)+shift) % K]
+    perm = cyclic_perm_matrix(K, shift)
 
     for j in range(d):
         X_ = tensors[idx].clone()
         X_[:, j] = X[:, j] @ perm
-        tensors_ = tensors.copy()
+        tensors_ = tensors.clone()
         tensors_[idx] = X_
         D[:, j] = func(*tensors_) - func_values
     return D
+
+
+def cyclic_perm_matrix(n_cat, shift):
+    """Obtain a cy
+
+    Args:
+        n_cat ([type]): [description]
+        shift ([type]): [description]
+
+    Returns:
+        [type]: [description]
+    """
+    perm = torch.eye(n_cat)
+    perm = perm[(torch.arange(n_cat)+shift) % n_cat]
+    return perm
