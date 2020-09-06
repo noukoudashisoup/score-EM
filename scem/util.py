@@ -148,3 +148,36 @@ def forward_diff(func, idx,
         tensors_[idx] = X_
         D[:, j] = func(*tensors_) - func_values
     return D
+
+
+def forward_diff_onehot(func, idx,
+                        tensors, shift=1):
+    """Takes the forward difference of 
+    a specified tensor in a sequence of tensors
+
+    Args:
+        func (Callable): function of tensors
+        idx (int): the index of tensor 
+        tensors (seq): list or tuple of tensors
+        shift (int, optional): stepsize for the difference operator.    Defaults to 1.
+
+    Returns:
+        [torch.Tensor]:
+        n x d tensor 
+    """
+    # variable to take forward-difference
+    func_values = func(*tensors)
+    X = tensors[idx]
+    D = torch.empty(X.shape[:-1],
+                    dtype=func_values.dtype)
+    _, d, K = X.shape
+    perm = torch.eye(K)
+    perm = perm[(torch.arange(K)+shift) % K]
+
+    for j in range(d):
+        X_ = tensors[idx].clone()
+        X_[:, j] = X[:, j] @ perm
+        tensors_ = tensors.copy()
+        tensors_[idx] = X_
+        D[:, j] = func(*tensors_) - func_values
+    return D

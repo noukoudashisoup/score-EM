@@ -177,15 +177,33 @@ def score_latent_lattice(X, Z, ebm):
     return torch.exp(D) - 1.
 
 
+def score_latent_lattice_onehot(X, Z, ebm):
+    assert isinstance(X, torch.Tensor)
+    assert isinstance(Z, torch.Tensor)
+    D = util.forward_diff_onehot(ebm.forward,
+                                 1, [X, Z])
+    return torch.exp(D) - 1.
+
+
+def score_obs_lattice_onehot(X, Z, ebm):
+    assert isinstance(X, torch.Tensor)
+    assert isinstance(Z, torch.Tensor)
+    D = util.forward_diff_onehot(ebm.forward,
+                                 0, [X, Z])
+    return torch.exp(D) - 1.
+
+
 # Dictionary of posterior score functions
 ebm_oscore_dict = {
     'continuous': score_obs_cont,
     'lattice': score_obs_lattice,
+    'lattice_onehot': score_latent_lattice_onehot,
 }
 # Dictionary of posterior score functions
 ebm_lscore_dict = {
     'continuous': score_latent_cont,
     'lattice': score_latent_lattice,
+    'lattice_onehot': score_latent_lattice_onehot,
 }
 
 
@@ -226,7 +244,7 @@ class PPCA(LatentEBM):
         return - X @ torch.pinverse(cov)
 
 
-class GaussianRBM(LatentEBM, DiscreteModel):
+class GaussianRBM(LatentEBM):
     """Class representing Gaussian Restricted Boltzmann
     Machines (GRBMs).
 
@@ -244,7 +262,7 @@ class GaussianRBM(LatentEBM, DiscreteModel):
             initlaised at the given value
     """
     var_type_obs = 'continuous'
-    var_type_latent = 'lattice'
+    var_type_latent = 'lattice_onehot'
 
     def __init__(self, W, b, c):
         super(GaussianRBM, self).__init__()
@@ -258,15 +276,22 @@ class GaussianRBM(LatentEBM, DiscreteModel):
         self.lattice_ranges_ = {'latent': ls_latent_}
 
     def forward(self, X, Z):
+        Z_ = torch.sum(Z * torch.arange(2), dim=2)
         W = self.W
         b = self.b
         c = self.c
-        log_joint = -torch.sum((X@W+c) * Z, dim=1)
+        log_joint = -torch.sum((X@W+c) * Z_, dim=1)
         log_joint += -X@b - torch.sum(X**2, axis=1)
         return log_joint
 
     def lattice_ranges(self, key):
         return self.lattice_ranges_[key]
+
+    def score_marginal_obs(self, X):
+        S = (-2.*X - self.b)
+        a = -(X @ self.W + self.c)
+        S += -(torch.exp(a) / (torch.exp(a)-1)) @ self.W.T
+        return S
 
 
 def LatentEBMAdapter(LatentEBM):
