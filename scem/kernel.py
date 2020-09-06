@@ -100,9 +100,21 @@ class DKSTKernel(Kernel):
         Return a numpy array of size nx x ny.
         """
 
-        X_ = X.copy()
+        X_ = X.clone()
         X_[:, dim] = torch.remainder(X_[:, dim]+shift, self.lattice_ranges[dim])
         return (self.eval(X, Y) - self.eval(X_, Y))
+
+    def gradY_X(self, X, Y, dim, shift=-1):
+        """
+        Default: compute the (cyclic) backward difference with respect to 
+        the dimension dim of Y in k(X, Y).
+
+        X: nx x d
+        Y: ny x d
+
+        Return a numpy array of size nx x ny.
+        """
+        return self.gradX_Y(Y, X, dim, shift).T
 
     def gradXY_sum(self, X, Y, shift=-1):
         """
@@ -118,8 +130,8 @@ class DKSTKernel(Kernel):
         K = torch.zeros((nx, ny))
         lattice_ranges = self.lattice_ranges
         for j in range(d):
-            X_ = X.copy()
-            Y_ = Y.copy()
+            X_ = X.clone()
+            Y_ = Y.clone()
             X_[:, j] = (X[:, j]+shift % lattice_ranges[j])
             Y_[:, j] = (Y[:, j]+shift % lattice_ranges[j])
             K += (self.eval(X, Y) + self.eval(X_, Y_)
@@ -354,3 +366,105 @@ class KHamming(DKSTKernel):
         H[X!=Y] = 1
         return torch.exp(-torch.mean(H, dim=1))
 
+
+class DKSTOnehotKernel(Kernel):
+    """
+    Interface specifiying methods a kernel has to implement to be used with 
+    the Discrete Kernelized Stein discrepancy test of Yang et al., 2018.
+    """
+
+    def __init__(self, n_cat):
+        """Require subclasses to have n_values and d """
+        self.n_cat = n_cat
+    
+    def gradX_Y(self, X, Y, dim, shift=-1):
+        """
+        Default: compute the (cyclic) backward difference with respect to 
+        the dimension dim of X in k(X, Y).
+
+        X: nx x d x n_cat
+        Y: ny x d x n_cat
+
+        Return a numpy array of size nx x ny.
+        """
+
+        X_ = X.clone()
+        perm = util.cyclic_perm_matrix(self.n_cat, shift)
+        X_[:, dim] = X[:, dim] @ perm
+        return (self.eval(X, Y) - self.eval(X_, Y))
+
+    def gradY_X(self, X, Y, dim, shift=-1):
+        """
+        Default: compute the (cyclic) backward difference with respect to 
+        the dimension dim of Y in k(X, Y).
+
+        X: nx x d
+        Y: ny x d
+
+        Return a numpy array of size nx x ny.
+        """
+        return self.gradX_Y(Y, X, dim, shift).T
+
+    def gradXY_sum(self, X, Y, shift=-1):
+        """
+        Compute the trace term in the kernel function in Yang et al., 2018. 
+
+        X: nx x d numpy array.
+        Y: ny x d numpy array. 
+
+        Return a nx x ny numpy array of the derivatives.
+        """
+        nx, d = X.shape
+        ny, _ = Y.shape
+        K = torch.zeros((nx, ny))
+        perm = util.cyclic_perm_matrix(self.n_cat, shift)
+        for j in range(d):
+            X_ = X.clone()
+            Y_ = Y.clone()
+            X_[:, j] = X[:, j] @ perm
+            Y_[:, j] = Y[:, j] @ perm
+            K += (self.eval(X, Y) + self.eval(X_, Y_)
+                  - self.eval(X_, Y) - self.eval(X, Y_))
+        return K
+
+# end DKSTKernel
+
+
+class OHKGauss(DKSTOnehotKernel):
+
+    def __init__(self, n_cat, sigma2):
+        """
+        Args:
+        - lattice_ranges: a positive integer/ integer array specifying
+        the number of possible of the discrete variable. 
+        """
+        super(DKSTOnehotKernel, self).__init__(n_cat)
+        self.sigma2 = sigma2
+
+    def eval(self, X, Y):
+        """
+        Evaluate the kernel on data X and Y
+        Args: 
+            X: n x d where each row represents one point
+            Y: n x d
+        Return: 
+            a n x n numpy array.
+        """
+        assert X.shape[1] == Y.shape[1]
+        assert X.shape[2] == X.shape[2]
+        diff = X - Y
+        D2 = torch.einsum('ijk,lmn-> il', diff, diff)
+        return torch.exp(-D2/self.sigma2)
+
+    def pair_eval(self, X, Y):
+        """Evaluate k(x1, y1), k(x2, y2), ...
+        
+        X: n x d where each row represents one point
+        Y: n x d
+        return a 1d numpy array of length n.
+        """
+        assert X.shape == Y.shape
+        n = X.shape[0]
+        diff2 = (X - Y)**2
+        d2sum = np.exp(-torch.sum(diff2.view(n, -1), axis=1)
+        return torch.exp(-d2sum/self.sigma2)
