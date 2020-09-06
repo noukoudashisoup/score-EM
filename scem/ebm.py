@@ -291,7 +291,7 @@ class GaussianRBM(LatentEBM):
         S = (-2.*X - self.b)
         a = -(X @ self.W + self.c)
         v = (torch.exp(a) / (torch.exp(a)+1))
-        S += torch.einsum('ij, jl->il', v, self.W.T)
+        S -= torch.einsum('ij, jl->il', v, self.W.T)
         return S
 
 
