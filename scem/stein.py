@@ -11,12 +11,12 @@ from abc import abstractmethod, ABCMeta
 
 def ksd_ustat_gram(X, S, k):
     """Returns the gram matrix of 
-    a score-absed Stein kernel
+    a score-based Stein kernel
 
     Args:
         X (torch.Tensor): n x dx tensor
         S (torch.Tensor): n x dx tensor 
-        k (kernel): a KSTKernel object
+        k (kernel): a KSTKernel/DKSTKernel object
 
     Returns:
         torch.tensor: n x n tensor
@@ -38,11 +38,11 @@ def ksd_ustat_gram(X, S, k):
 
     h = K*gram_score + B + C + k.gradXY_sum(X, X)
     return h
-    
+
 
 def ksd_ustat(X, score_fn, k):
+    """Computes KSD U-stat estimate"""
     n = X.shape[0]
-
     S = score_fn(X)
     H = ksd_ustat_gram(X, S, k)
     stat = (torch.sum(H) - torch.sum(torch.diag(H)))
@@ -51,9 +51,9 @@ def ksd_ustat(X, score_fn, k):
 
 
 def kcsd_ustat(X, Z, cond_score_fn, k, l):
+    """Computes KSCD U-stat estimate"""
     n = X.shape[0]
     assert n == Z.shape[0]
-
     S = cond_score_fn(X, Z)
     cond_ksd_gram = ksd_ustat_gram(Z, S, l)
     K = k.eval(X, X) 

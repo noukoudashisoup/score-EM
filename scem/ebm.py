@@ -68,7 +68,8 @@ class LatentEBM(nn.Module, metaclass=ABCMeta):
     def score_joint_obs(self, X, Z):
         """Computes the gradient
         of the energy function
-        (unnormalised part) w.r.t. X
+        (unnormalised part) w.r.t. X. 
+        Subclasses may extend this if it is more efficient.
 
 
         Args:
@@ -87,7 +88,8 @@ class LatentEBM(nn.Module, metaclass=ABCMeta):
     def score_joint_latent(self, X, Z):
         """Computes the gradient
         of the energy function
-        (unnormalised part) w.r.t. X
+        (unnormalised part) w.r.t. Z
+        Subclasses may extend this if it is more efficient.
 
 
         Args:
@@ -103,6 +105,14 @@ class LatentEBM(nn.Module, metaclass=ABCMeta):
         return score_fn(X, Z, self)
 
     def score_marginal_obs(self, X):
+        """Returns the score of p(x) = \int p(x,z)dz
+
+        Args:
+            X (torch.Tensor): tensor of size [n, dx]
+
+        Returns:
+            [torch.Tensor]: tensor of size [n, dx]
+        """
         return None
 
     def has_score_marginal_obs(self, X):
@@ -110,7 +120,7 @@ class LatentEBM(nn.Module, metaclass=ABCMeta):
 
 
 def score_latent_cont(X, Z, ebm):
-    """Computes the derivative of func(x,z)
+    """Computes the derivative of ebm.forward(x,z)
     w.r.t z
 
     Args:
@@ -134,8 +144,8 @@ def score_latent_cont(X, Z, ebm):
 
 
 def score_obs_cont(X, Z, ebm):
-    """Computes the derivative of func(x,z)
-    w.r.t z
+    """Computes the derivative of ebm.forward(x,z)
+    w.r.t X
 
     Args:
         X (torch.Tensor):
@@ -193,7 +203,8 @@ def score_obs_lattice_onehot(X, Z, ebm):
     return torch.exp(D) - 1.
 
 
-# Dictionary of posterior score functions
+# Dictionary of joint score functions
+# with derivatives computed w.r.t. X
 ebm_oscore_dict = {
     'continuous': score_obs_cont,
     'lattice': score_obs_lattice,
@@ -304,11 +315,11 @@ def LatentEBMAdapter(LatentEBM):
         module: 
             a torch.nn.Module object
     """
-    
+
     def __init__(self, module):
         super(LatentEBM, self).__init__()
         self.module = module
-        
+
     def forward(self, X, Z):
         return self.module.forward(X, Z)
 
@@ -326,6 +337,7 @@ def main():
     ppca = PPCA(W, var)
     s1 = ppca.score_joint_latent(X, Z)
     s2 = ppca.score_joint_obs(X, Z)
+
 
 if __name__ == '__main__':
     main()

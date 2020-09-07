@@ -16,6 +16,8 @@ def main():
     n = 300
     dx = 10 
     dz = 3
+
+    # instantiate a GRBM object
     n_cat = 2
     X = torch.randn([n, dx])
     W = torch.randn([dx, dz]) / (dx * dz)**0.5
@@ -23,8 +25,10 @@ def main():
     b = torch.randn([dx, ])
     grbm = ebm.GaussianRBM(W, b, c)
 
+    # define kernels
     med2 = util.pt_meddistance(X)**2
     kx = kernel.PTKGauss(torch.tensor([med2]))
+    kz = kernel.OHKGauss(n_cat, torch.tensor([dz*1.0]))
 
     # q(z|x)
     cs = gen.CSGRBMBernoulliFamily(dx, dz)
@@ -46,8 +50,6 @@ def main():
     # kcsd training
     T = 2000
     n_sample = 200
-    kz = kernel.OHKGauss(n_cat, torch.tensor([dz*1.0]))
-
     for t in range(T):
         Z = cs.sample(1, X, seed+t)
         Z = Z.squeeze(0)
@@ -60,6 +62,10 @@ def main():
     
         if t%100 == 0:
             cs = cs.eval()
+            Z = cs.sample(1, X, seed+t)
+            Z = Z.squeeze(0)
+            loss = stein.kcsd_ustat(
+                X, Z, grbm.score_joint_latent, kx, kz)
             marginal_score_mse = (torch.mean(
                 (approx_score(X, n_sample=n_sample)-S)**2))
             print('(iter, loss, score mse): {}, {}. {}'.format(t, loss, marginal_score_mse))
