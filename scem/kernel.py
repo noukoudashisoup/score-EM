@@ -144,7 +144,6 @@ class DKSTKernel(Kernel):
 # end DKSTKernel
 
 
-
 class PTKGauss(KSTKernel):
     """
     Pytorch implementation of the isotropic Gaussian kernel.
@@ -252,10 +251,8 @@ class PTKGauss(KSTKernel):
 
 
 class KIMQ(KSTKernel):
-    """Class of Inverse MultiQuadratic (IMQ) kernels. 
-
-    Args:
-        KSTKernel ([type]): [description]
+    """Class of Inverse MultiQuadratic (IMQ) kernels.
+    Have not been tested. Be careful. 
     """
 
     def __init__(self, b=-0.5, c=1.0):
@@ -371,15 +368,17 @@ class DKSTOnehotKernel(Kernel):
     """
     Interface specifiying methods a kernel has to implement to be used with 
     the Discrete Kernelized Stein discrepancy test of Yang et al., 2018.
+
+    The input is expected to be categorical variables represented
+    by onehot encoding.
     """
 
     def __init__(self, n_cat):
-        """Require subclasses to have n_values and d """
         self.n_cat = n_cat
     
     def gradX_Y(self, X, Y, dim, shift=-1):
         """
-        Default: compute the (cyclic) backward difference with respect to 
+        Default: compute the (cyclic) backward difference with respect to
         the dimension dim of X in k(X, Y).
 
         X: nx x d x n_cat
@@ -432,15 +431,19 @@ class DKSTOnehotKernel(Kernel):
 
 
 class OHKGauss(DKSTOnehotKernel):
+    """Gaussian kernel defined on
+    categorical variables in onehot representation. 
+
+    Attributes:
+        n_cat (int): 
+            The number of categories of the input
+            variable
+        sigma2 (torch.tensor):
+            The bandwidth paramter. A scalar or vector.
+    """
 
     def __init__(self, n_cat, sigma2):
-        """
-        Args:
-        - lattice_ranges: a positive integer/ integer array specifying
-        the number of possible of the discrete variable. 
-        """
-        super(DKSTOnehotKernel, self).__init__()
-        self.n_cat = n_cat
+        super(OHKGauss, self).__init__(n_cat)
         self.sigma2 = sigma2
 
     def eval(self, X, Y):

@@ -29,13 +29,18 @@ class ConditionalSampler(metaclass=ABCMeta):
 
 class CSNoiseTransformer(ConditionalSampler,
                          nn.Module):
+    """Conditional distribution of the form 
+      Z \sim F(X, n) where X is a conditinoning
+      variable, n is noise, and F is a function
+      of those.  
+    """
 
     def __init__(self):
         super(CSNoiseTransformer, self).__init__()
 
     @abstractmethod
     def forward(self, noise, X, *args, **kwargs):
-        """Map transforming noise
+        """Define map F transforming noise and input X 
         """
         pass
 
@@ -50,6 +55,10 @@ class CSNoiseTransformer(ConditionalSampler,
 
     @abstractmethod
     def in_out_shapes(self):
+        """Returns the tuple of the
+        respective shapes of the noise 
+        and the tranformed noise.
+        """
         pass
 
 
@@ -83,8 +92,7 @@ class PTPPCAPosterior(ConditionalSampler):
 
 class PTCSGaussLinearMean(CSNoiseTransformer):
     """Gaussian distribution    of the form
-    N(m(x), W W^T) where
-    m(x) is an affine transformation and 
+    N(Ax+b, W W^T) where
     W is a some matrix of dz x dz. 
 
     Attributes: 
@@ -96,7 +104,7 @@ class PTCSGaussLinearMean(CSNoiseTransformer):
         W: torch parameter, matrix of size [dz, dz]
     """
     
-    def __init__(self, dx, dz):
+    def __init__(self, dx, dz, *args, **kwargs):
         super(PTCSGaussLinearMean, self).__init__()
         self.mean_fn = nn.Linear(dx, dz)
         self.W = Parameter(torch.eye(dz))
@@ -124,7 +132,17 @@ class PTCSGaussLinearMean(CSNoiseTransformer):
 
 class CSGRBMBernoulliFamily(ConditionalSampler,
                             nn.Module):
-    
+    """Class representing a conditional distribution
+    of the form:
+        \prod_{j=1}^dz Bern(z_j; pj(X)), where 
+        pj(X) = AjX + bj
+
+    Attributes: 
+        dx (int): 
+            Conditioning variable's dimension
+        dz (int):
+            Output variables's dimension
+    """
     n_cat = 2
 
     def __init__(self, dx, dz):
@@ -148,6 +166,11 @@ class CSGRBMBernoulliFamily(ConditionalSampler,
 
     def sample(self, n_sample, X,
                seed=3, *args, **kwargs):
+        """
+        Returns:
+            torch.Tensor: tensor of size 
+            [n_sample,] + X.shape + [2,]
+        """
         probs = self.forward(X)
         temp = torch.tensor([1.])
         if self.training:
@@ -162,13 +185,32 @@ class CSGRBMBernoulliFamily(ConditionalSampler,
 
 
 class CSGRBMPosterior(ConditionalSampler):
+    """The posterior distribution of a Gaussian-Boltzmann
+    Machine.
+
+    Attributes: 
+        grbm (ebm.GRBM)
+        W (torch.Tensor):
+            W parameter of grbm
+        b (torch.Tensor)
+            b paramter of grbm
+        c (torch.Tensor)
+            c parameter of grbm
+    """
 
     def __init__(self, grbm):
+        self.grbm = grbm
         self.W = grbm.W
         self.b = grbm.b
         self.c = grbm.c
 
     def sample(self, n_sample, X, seed=13):
+        """
+        Returns:
+            torch.Tensor: tensor of size 
+            [n_sample,] + X.shape + [2,]
+        """
+
         W = self.W
         c = self.c
         probs = torch.sigmoid(-(X@W+c))
