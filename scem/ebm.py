@@ -240,18 +240,18 @@ class PPCA(LatentEBM):
 
     def forward(self, X, Z):
         W = self.weight
-        var = self.var
+        std = self.var**0.5
         mean = Z @ W.T
         X0 = X - mean
-        exponent = -0.5/var * torch.sum(X0**2, dim=-1)
+        exponent = -0.5/std**2 * torch.sum(X0**2, dim=-1)
         exponent += -0.5 * torch.sum(Z**2, dim=-1)
         return exponent
 
     def score_marginal_obs(self, X):
         n, dx = X.shape
         W = self.weight
-        var = self.var
-        cov = var*torch.eye(dx) + W@W.T
+        std = self.var**0.5
+        cov = std**2 * torch.eye(dx) + W@W.T
         return - X @ torch.pinverse(cov)
 
 

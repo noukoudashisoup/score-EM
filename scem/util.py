@@ -121,7 +121,8 @@ def gradient(func, idx, tensors):
     func_sum = torch.sum(func_values)
     Gs = torch.autograd.grad(func_sum, X,
                              retain_graph=True,
-                             only_inputs=True
+                             only_inputs=True,
+                             create_graph=True,
                              )
     G = Gs[0]
 
