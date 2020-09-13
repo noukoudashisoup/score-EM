@@ -82,22 +82,25 @@ class ApproximateScore:
             representing an approximate posterior
     """
 
-    def __init__(self, joint_score_fn, csampler):
+    def __init__(self, joint_score_fn, csampler, n_sample=100):
+        super(ApproximateScore, self).__init__()
         self.joint_score_fn = joint_score_fn
         self.csampler = csampler
+        self.n_sample = 100
 
-    def __call__(self, X, n_sample=100, seed=7):
+    def __call__(self, X, n_sample=None, seed=7):
         n, _ = X.shape
         cs = self.csampler
         js = self.joint_score_fn
-        Z_batch = cs.sample(n_sample, X, seed=seed)
+        ns = self.n_sample if n_sample is None else n_sample
+        Z_batch = cs.sample(ns, X, seed=seed)
         # Assuming the last two dims are [n, dx]
         # TODO this is not efficient
-        JS = [js(X, Z_batch[i]) for i in range(n_sample)]
+        JS = [js(X, Z_batch[i]) for i in range(ns)]
         return torch.mean(torch.stack(JS), dim=0)
 
         # TODO this could be memory-intense
-        # X_ = torch.stack([X.clone() for i in range(n_sample)])
+        # X_ = torch.stack([X.clone() for i in range(ns)])
         # JS = js(X_, Z_batch)
         # return torch.mean(JS, dim=0)
 
