@@ -301,9 +301,43 @@ class GaussianRBM(LatentEBM):
     def score_marginal_obs(self, X):
         S = (-2.*X - self.b)
         a = -(X @ self.W + self.c)
-        v = (torch.exp(a) / (torch.exp(a)+1))
+        v = torch.sigmoid(a)
         S -= torch.einsum('ij, jl->il', v, self.W.T)
         return S
+
+    def sample(self, n, seed=93, n_burnin=500, return_latent=False):
+        W = self.W
+        b = self.b
+        c = self.c
+        dx = self.dx
+        dz = self.dz
+
+        def gibbs(X0, n_sample, keep_sample=False):
+            if keep_sample:
+                X_batch = torch.empty([n_sample, dx])
+                Z_batch = torch.empty([n_sample, dz])
+            X_ = X0.clone()
+            for i in range(n_sample):
+                # Z|X
+                pzx = torch.sigmoid(-(X_@W+c))
+                Z_ = torch.bernoulli(pzx)
+                # X|Z
+                X_ = torch.randn(dx)/(2**0.5) - 0.5*(Z_@W.T + b)
+                if keep_sample:
+                    X_batch[i] = X_.detach()
+                    Z_batch[i] = Z_.detach()
+            if keep_sample:
+                return X_batch, Z_batch
+            return X_.detach(), Z_.detach()
+
+        with util.TorchSeedContext(seed):
+            X0 = torch.randn(dx)
+            X_, _ = gibbs(X0, n_burnin)
+            X, Z = gibbs(X_, n, keep_sample=True)
+        if return_latent:
+            return X, Z
+        return X
+
 
 
 def LatentEBMAdapter(LatentEBM):
