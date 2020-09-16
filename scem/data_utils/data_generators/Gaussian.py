@@ -2,10 +2,10 @@ from abc import abstractmethod
 from scipy.linalg import cho_solve
 
 import numpy as np
-from data_utils.data_generators.Base import DataGenerator
-from data_utils.density import log_gaussian_pdf_isotropic, log_gaussian_pdf, \
+from scem.data_utils.data_generators.Base import DataGenerator
+from scem.data_utils.density import log_gaussian_pdf_isotropic, log_gaussian_pdf, \
     sample_gaussian
-from data_utils.mathematics import qmult, log_sum_exp, hypercube
+from scem.data_utils.mathematics import qmult, log_sum_exp, hypercube
 
 
 class GaussianBase(DataGenerator):
