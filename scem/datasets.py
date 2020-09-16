@@ -2,8 +2,8 @@ import numpy as np
 from scipy.special import logsumexp
 from scipy.integrate import quad
 from scipy.stats import norm, multivariate_normal as mvn
-from data_utils.density import rings_log_pdf_grad, rings_sample, rings_log_pdf
-from data_utils.data_generators.Gaussian import GaussianGrid
+from scem.data_utils.density import rings_log_pdf_grad, rings_sample, rings_log_pdf
+from scem.data_utils.data_generators.Gaussian import GaussianGrid
 from sklearn.metrics.pairwise import euclidean_distances
 from scipy.spatial.distance import pdist
 from scipy.stats import truncnorm as tnorm
