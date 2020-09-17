@@ -339,8 +339,7 @@ class GaussianRBM(LatentEBM):
         return X
 
 
-
-def LatentEBMAdapter(LatentEBM):
+class LatentEBMAdapter(LatentEBM):
     """Construct a LatentEBM object
     with its forward function specified
     by torch.nn.Module.
@@ -350,12 +349,23 @@ def LatentEBMAdapter(LatentEBM):
             a torch.nn.Module object
     """
 
-    def __init__(self, module):
+    def __init__(self, module, var_type_obs, var_type_latent):
         super(LatentEBM, self).__init__()
         self.module = module
+        self._var_type_obs = var_type_obs
+        self._var_type_latent = var_type_latent
 
     def forward(self, X, Z):
         return self.module.forward(X, Z)
+    
+    @property
+    def var_type_obs(self):
+        return self._var_type_obs
+
+    @property
+    def var_type_latent(self):
+        return self._var_type_latent
+    
 
 
 def main():

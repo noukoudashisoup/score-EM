@@ -259,12 +259,12 @@ class KIMQ(KSTKernel):
     def eval(self, X, Y):
         b = self.b
         c = self.c
-        s = self.s2**0.5
+        s2 = self.s2
         sumx2 = torch.sum(X ** 2, 1).reshape(-1, 1)
         sumy2 = torch.sum(Y ** 2, 1).reshape(1, -1)
         # D2 = sumx2 - 2.0 * X.mm(Y.t()) + sumy2
         D2 = util.pt_dist2_matrix(X, Y)
-        K = (c ** 2 + D2/s**2) ** b
+        K = (c ** 2 + D2/s2**2) ** b
         return K
 
     def pair_eval(self, X, Y):
@@ -283,18 +283,18 @@ class KIMQ(KSTKernel):
 
         Return a numpy array of size nx x ny.
         """
-        s = self.s2** 0.5
+        s2 = self.s2
         D2 = util.pt_dist2_matrix(X, Y)
         # 1d array of length nx
         Xi = X[:, dim]
         # 1d array of length ny
         Yi = Y[:, dim]
         # nx x ny
-        dim_diff = (Xi.unsqueeze(1) - Yi.unsqueeze(0)) / s
+        dim_diff = (Xi.unsqueeze(1) - Yi.unsqueeze(0))
 
         b = self.b
         c = self.c
-        Gdim = ( 2.0*b*(c**2 + D2)**(b-1) )*dim_diff
+        Gdim = ( 2.0*b*(c**2 + D2)**(b-1) )*dim_diff / s2
         assert Gdim.shape[0] == X.shape[0]
         assert Gdim.shape[1] == Y.shape[0]
         return Gdim
@@ -310,16 +310,16 @@ class KIMQ(KSTKernel):
 
         Return a nx x ny numpy array of the derivatives.
         """
-        s = self.s2 ** 0.5
+        s2 = self.s2
         b = self.b
         c = self.c
-        D2 = util.pt_dist2_matrix(X, Y) / s**2
+        D2 = util.pt_dist2_matrix(X, Y) / s2
 
         # d = input dimension
         d = X.shape[1]
         c2D2 = c**2 + D2
-        T1 = -4.0*b*(b-1)*D2*(c2D2**(b-2))
-        T2 = -2.0*b*d*c2D2**(b-1) / s
+        T1 = -4.0*b*(b-1)*D2*(c2D2**(b-2)) / s2
+        T2 = -2.0*b*d*c2D2**(b-1) / s2
         return T1 + T2
 
 

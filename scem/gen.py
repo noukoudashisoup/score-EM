@@ -135,7 +135,7 @@ class CSGRBMBernoulliFamily(ConditionalSampler,
     """Class representing a conditional distribution
     of the form:
         \prod_{j=1}^dz Bern(z_j; pj(X)), where 
-        pj(X) = AjX + bj
+        pj(X) = softmax(AjX + bj)
 
     Attributes: 
         dx (int): 
@@ -219,6 +219,33 @@ class CSGRBMPosterior(ConditionalSampler):
         with util.TorchSeedContext(seed):
             H = m.sample([n_sample])
         return H
+
+
+class CSFactorisedGaussian(ConditionalSampler, nn.Module):
+
+    def __init__(self, dx, dz, dh):
+        super(CSFactorisedGaussian, self).__init__()
+        self.dx = dx
+        self.dz = dz
+        self.dh = dh 
+        self.layer_1 = nn.Linear(dx, dh)
+        self.layer_2_m = nn.Linear(dh, dz)
+        self.layer_2_v = nn.Linear(dh, dz)       
+
+    def forward(self, X):
+        h = self.layer_1(X).relu()
+        m = self.layer_2_m(h)
+        v = self.layer_2_v(h)
+        v = nn.functional.softplus(v)
+        return m, v
+    
+    def sample(self, n_sample, X, seed=3):
+        n = X.shape[0]
+        m, v = self.forward(X)
+        d = m.shape[1]
+        with util.TorchSeedContext(seed):
+            noise = torch.randn(n_sample, n, d)
+        return v * noise + m
 
 
 def main():
