@@ -29,8 +29,8 @@ def ksd_ustat_gram(X, S, k):
     # n x n
     K = k.eval(X, X)
 
-    B = torch.zeros((n, n))
-    C = torch.zeros((n, n))
+    B = torch.zeros((n, n), dtype=X.dtype)
+    C = torch.zeros((n, n), dtype=X.dtype)
     for i in range(dx):
         S_i = S[:, i]
         B += k.gradX_Y(X, X, i)*S_i
