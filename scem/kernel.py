@@ -127,7 +127,7 @@ class DKSTKernel(Kernel):
         """
         nx, d = X.shape
         ny, _ = Y.shape
-        K = torch.zeros((nx, ny))
+        K = torch.zeros((nx, ny), dtype=X.dtype)
         lattice_ranges = self.lattice_ranges
         for j in range(d):
             X_ = X.clone()
@@ -244,10 +244,7 @@ class KIMQ(KSTKernel):
     Have not been tested. Be careful. 
     """
 
-    def __init__(self,
-                 b=torch.tensor([-0.5]),
-                 c=torch.tensor([1.0]),
-                 s2=torch.tensor([1.0])):
+    def __init__(self, b=-0.5, c=1.0, s2=1.0):
         if not b < 0:
             raise ValueError("b has to be negative. Was {}".format(b))
         if not c > 0:
@@ -357,7 +354,7 @@ class KHamming(DKSTKernel):
         """
         assert X.shape == Y.shape
         n, d = X.shape
-        H = torch.zeros((n, d))
+        H = torch.zeros((n, d), dtype=X.dtype)
         H[X!=Y] = 1
         return torch.exp(-torch.mean(H, dim=1))
 
@@ -414,7 +411,7 @@ class DKSTOnehotKernel(Kernel):
         nx = X.shape[0]
         d = X.shape[1]
         ny = Y.shape[0]
-        K = torch.zeros((nx, ny))
+        K = torch.zeros((nx, ny), dtype=X.dtype)
         perm = util.cyclic_perm_matrix(self.n_cat, shift)
         for j in range(d):
             X_ = X.clone()

@@ -172,7 +172,7 @@ class CSGRBMBernoulliFamily(ConditionalSampler,
             [n_sample,] + X.shape + [2,]
         """
         probs = self.forward(X)
-        temp = torch.tensor([1.])
+        temp = torch.tensor([1.], dtype=X.dtype)
         if self.training:
             m = dists.RelaxedOneHotCategorical(
                 temp,
