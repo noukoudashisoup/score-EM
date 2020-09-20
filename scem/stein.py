@@ -90,10 +90,10 @@ class ApproximateScore:
 
     def __call__(self, X, n_sample=None, seed=7):
         n, _ = X.shape
-        cs = self.csampler
         js = self.joint_score_fn
         ns = self.n_sample if n_sample is None else n_sample
-        Z_batch = cs.sample(ns, X, seed=seed)
+        with torch.no_grad():
+            Z_batch = self.csampler.sample(ns, X, seed=seed)
         # Assuming the last two dims are [n, dx]
         # TODO this is not efficient
         JS = [js(X, Z_batch[i]) for i in range(ns)]
