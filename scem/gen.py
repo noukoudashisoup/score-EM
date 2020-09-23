@@ -280,7 +280,7 @@ class CSNoiseTransformerAdapter(CSNoiseTransformer):
         
     """
 
-    def __init__(self, module, noise_sampler, in_out_shapes, tensor_type=torch.float32):
+    def __init__(self, module, noise_sampler, in_out_shapes, tensor_type=torch.cuda.FloatTensor):
         super(CSNoiseTransformerAdapter, self).__init__()
         self.module = module
         self.noise_sampler = noise_sampler
