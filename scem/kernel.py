@@ -75,6 +75,11 @@ class KSTKernel(Kernel, metaclass=ABCMeta):
         """
         pass
 
+    def gradX_y(self, X, y):
+        n = X.shape[0] 
+        Y = torch.stack([y]*n)
+        return util.gradient(self.eval, 0, [X, Y])
+
 # end KSTKernel
 
 
@@ -310,12 +315,12 @@ class KIMQ(KSTKernel):
         s2 = self.s2
         b = self.b
         c = self.c
-        D2 = util.pt_dist2_matrix(X, Y) / s2
+        D2 = util.pt_dist2_matrix(X, Y)
 
         # d = input dimension
         d = X.shape[1]
-        c2D2 = c**2 + D2
-        T1 = -4.0*b*(b-1)*D2*(c2D2**(b-2)) / s2
+        c2D2 = c**2 + D2/s2
+        T1 = -4.0*b*(b-1)*D2*(c2D2**(b-2)) / (s2**2)
         T2 = -2.0*b*d*c2D2**(b-1) / s2
         return T1 + T2
 
