@@ -32,40 +32,60 @@ class Kernel(object, metaclass=ABCMeta):
         pass
 
 
-class KSTKernel(Kernel, metaclass=ABCMeta):
+class DifferentiableKernel(Kernel):
+
+    def pair_gradX(self, X, Y):
+        assert X.shape == Y.shape
+        return util.gradient(self.pair_eval, 0, [X, Y])
+    
+    def pair_gradY(self, X, Y):
+        assert X.shape == Y.shape
+        return util.gradient(self.pair_eval, 1, [X, Y])
+
+    def gradX_y(self, X, y):
+        n = X.shape[0] 
+        Y = torch.stack([y]*n)
+        return util.gradient(self.pair_eval, 0, [X, Y])
+    
+    @abstractmethod
+    def gradX(self, X, Y):
+        """Returns nabla_x k(x, y)|_{x=X[i], Y[j]}"""
+        pass
+        
+    def gradY(self, X, Y):
+        """Returns nabla_y k(x, y)|_{x=X[i], Y[j]}"""
+        dims = list(range(len(X.shape)))
+        dims[0] = 1
+        dims[1] = 0
+        return gradX(Y, X).permute(*dims)
+        
+    @abstractmethod
+    def gradXY(self, X, Y):
+        pass
+
+
+class KSTKernel(metaclass=ABCMeta):
     """
     Interface specifiying methods a kernel has to implement to be used with
-    the Kernelized Stein discrepancy test of Chwialkowski et al., 2016 and
-    Liu et al., 2016 (ICML 2016 papers) See goftest.KernelSteinTest.
+    the Kernelized Stein discrepancy.
+    We require some additional method required for composing a deep
+    kernel.
     """
 
     @abstractmethod
-    def gradX_Y(self, X, Y, dim):
-        """
-        Compute the gradient with respect to the dimension dim of X in k(X, Y).
-
-        X: nx x d
-        Y: ny x d
-
-        Return a numpy array of size nx x ny.
-        """
+    def gradX(self, X, Y):
         pass
 
-    def gradY_X(self, X, Y, dim):
-        """
-        Compute the gradient with respect to the dimension dim of Y in k(X, Y).
-
-        X: nx x d
-        Y: ny x d
-
-        Return a numpy array of size nx x ny.
-        """
-        return self.gradX_Y(Y, X, dim).T
+    def gradY(self, X, Y):
+        dims = list(range(len(X.shape)))
+        dims[0] = 1
+        dims[1] = 0
+        return self.gradX(Y, X).permute(*dims)
 
     @abstractmethod
     def gradXY_sum(self, X, Y):
         """
-        Compute \sum_{i=1}^d \frac{\partial^2 k(x, Y)}{\partial x_i \partial y_i}
+        Compute \sum_{i=1}^d \frac{\par^2 k(x, Y)}{\par x_i \par y_i}
         evaluated at each x_i in X, and y_i in Y.
 
         X: nx x d numpy array.
@@ -74,12 +94,7 @@ class KSTKernel(Kernel, metaclass=ABCMeta):
         Return a nx x ny numpy array of the derivatives.
         """
         pass
-
-    def gradX_y(self, X, y):
-        n = X.shape[0] 
-        Y = torch.stack([y]*n)
-        return util.gradient(self.eval, 0, [X, Y])
-
+   
 # end KSTKernel
 
 
@@ -94,7 +109,7 @@ class DKSTKernel(Kernel):
         self.lattice_ranges = lattice_ranges
         self._d = d
     
-    def gradX_Y(self, X, Y, dim, shift=-1):
+    def parX(self, X, Y, dim, shift=-1):
         """
         Default: compute the (cyclic) backward difference with respect to 
         the dimension dim of X in k(X, Y).
@@ -109,7 +124,7 @@ class DKSTKernel(Kernel):
         X_[:, dim] = torch.remainder(X_[:, dim]+shift, self.lattice_ranges[dim])
         return (self.eval(X, Y) - self.eval(X_, Y))
 
-    def gradY_X(self, X, Y, dim, shift=-1):
+    def parY(self, X, Y, dim, shift=-1):
         """
         Default: compute the (cyclic) backward difference with respect to 
         the dimension dim of Y in k(X, Y).
@@ -119,7 +134,18 @@ class DKSTKernel(Kernel):
 
         Return a numpy array of size nx x ny.
         """
-        return self.gradX_Y(Y, X, dim, shift).T
+        return self.parX(Y, X, dim, shift).T
+    
+    def gradX(self, X, Y, shift=-1):
+        d = X.shape[1]
+        G = torch.stack([self.parX(X, Y, j, shift) for j in range(d)])
+        return G.permute(1, 2, 0)
+
+    def gradY(self, X, Y, shift=-1):
+        dims = list(range(len(X.shape)))
+        dims[0] = 1
+        dims[1] = 0
+        return self.gradX(Y, X).permute(*dims)
 
     def gradXY_sum(self, X, Y, shift=-1):
         """
@@ -148,8 +174,234 @@ class DKSTKernel(Kernel):
 
 # end DKSTKernel
 
+class DKSTOnehotKernel(Kernel):
+    """
+    Interface specifiying methods a kernel has to implement to be used with 
+    the Discrete Kernelized Stein discrepancy test of Yang et al., 2018.
 
-class PTKGauss(KSTKernel):
+    The input is expected to be categorical variables represented
+    by onehot encoding.
+    """
+
+    def __init__(self, n_cat):
+        self.n_cat = n_cat
+    
+    def parX(self, X, Y, dim, shift=-1):
+        """
+        Default: compute the (cyclic) backward difference with respect to
+        the dimension dim of X in k(X, Y).
+
+        X: nx x d x n_cat
+        Y: ny x d x n_cat
+
+        Return a numpy array of size nx x ny.
+        """
+
+        X_ = X.clone()
+        perm = util.cyclic_perm_matrix(self.n_cat, shift)
+        X_[:, dim] = X[:, dim] @ perm
+        return (self.eval(X, Y) - self.eval(X_, Y))
+
+    def parY(self, X, Y, dim, shift=-1):
+        """
+        Default: compute the (cyclic) backward difference with respect to 
+        the dimension dim of Y in k(X, Y).
+
+        X: nx x d
+        Y: ny x d
+
+        Return a numpy array of size nx x ny.
+        """
+        return self.parX(Y, X, dim, shift).T
+
+    def gradX(self, X, Y, shift=-1):
+        """Compute the gradient (difference) w.r.t. X."""
+        d = X.shape[1]
+        G = torch.stack([self.parX(X, Y, j, shift) for j in range(d)])
+        return G.permute(1, 2, 0)
+
+    def gradXY_sum(self, X, Y, shift=-1):
+        """
+        Compute the trace term in the kernel function in Yang et al., 2018. 
+
+        X: nx x d x n_cat numpy array.
+        Y: ny x d x n_cat numpy array. 
+
+        Return a nx x ny numpy array of the derivatives.
+        """
+        nx = X.shape[0]
+        d = X.shape[1]
+        ny = Y.shape[0]
+        K = torch.zeros((nx, ny), dtype=X.dtype)
+        perm = util.cyclic_perm_matrix(self.n_cat, shift)
+        for j in range(d):
+            X_ = X.clone()
+            Y_ = Y.clone()
+            X_[:, j] = X[:, j] @ perm
+            Y_[:, j] = Y[:, j] @ perm
+            K += (self.eval(X, Y) + self.eval(X_, Y_)
+                  - self.eval(X_, Y) - self.eval(X, Y_))
+        return K
+    
+# end DKSTOnehotKernel
+
+
+class FeatureMap(metaclass=ABCMeta):
+    """
+    Abstract class for a feature map of a kernel.
+    """
+
+    @abstractmethod
+    def __call__(self, x):
+        """
+        Return a feature vector for the input x.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def input_shape(self):
+        """
+        Return the expected input shape of this feature map (excluding the
+        batch dimension).  For instance if each point is a 32x32 pixel image,
+        then return (32, 32).
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def output_shape(self):
+        """
+        Return the output shape of this feature map.
+        """
+        raise NotImplementedError()
+
+
+# end class FeatureMap
+
+
+class FuncFeatureMap(FeatureMap):
+    def __init__(self, f, in_shape, out_shape):
+        """
+        f: a callable object representing the feature map.
+        in_shape: expected shape of the input
+        out_shape: expected shape of the output
+        """
+        self.f = f
+        self.in_shape = in_shape
+        self.out_shape = out_shape
+
+    def __call__(self, x):
+        f = self.f
+        return f(x)
+
+    def input_shape(self):
+        return self.in_shape
+
+    def output_shape(self):
+        return self.out_shape
+
+    def component_grad(self, X, idx):
+        def f_(X):
+            return self.f(X)[:, idx]
+        return util.gradient(f_, 0, [X])
+ 
+
+class KFuncCompose(Kernel):
+    """
+    A kernel given by k'(x,y) = k(f(x), f(y)), where f is the specified 
+    function, and k is the specified kernel.
+    f has to be callable.
+    """
+
+    def __init__(self, k, f):
+        """
+        k: a PTKernel
+        f: a callable object or a function
+        """
+        self.k = k
+        self.f = f
+
+    def eval(self, X, Y):
+        f = self.f
+        k = self.k
+        fx = f(X)
+        fy = f(Y)
+        return k.eval(fx, fy)
+
+    def pair_eval(self, X, Y):
+        f = self.f
+        k = self.k
+        fx = f(X)
+        fy = f(Y)
+        return k.pair_eval(fx, fy)
+
+
+class KSTFuncCompose(KFuncCompose, KSTKernel):
+
+    def __init__(self, k, f):
+        if not isinstance(k, DifferentiableKernel):
+            raise TypeError('k needs to be differentiable')
+        if not isinstance(f, FuncFeatureMap):
+            raise TypeError('feature function needs to be differentiable')
+        super(KSTFuncCompose, self).__init__(k, f)
+    
+    def gradX(self, X, Y):
+        k = self.k
+        f = self.f
+        nx = X.shape[0]
+        ny = Y.shape[0]
+        dx = X[0].numel()
+
+        assert len(f.output_shape()) == 1
+        d_out = f.output_shape()[0]
+
+        # n1 x n2 x d_out
+        kG = k.gradX(X, Y)
+
+        g_feat_X = torch.empty((d_out, nx, dx),
+                               dtype=X.dtype,
+                               device=X.device)
+        for i_o in range(d_out):
+            g_feat_X[i_o] = f.component_grad(X, i_o).reshape(nx, dx)
+        
+        G = torch.einsum('nmi,inj->nmj', kG, g_feat_X)
+        return G.reshape((nx, ny,)+X[0].shape)
+
+    def gradXY_sum(self, X, Y):
+        assert isinstance(self.f, FuncFeatureMap)
+        k = self.k
+        f = self.f
+        assert len(f.output_shape()) == 1
+        d_out = f.output_shape()[0]
+        nx = X.shape[0]
+        ny = Y.shape[1]
+        dx = X[0].numel()
+        dy = Y[0].numel()
+        assert dx == dy
+
+        # n1 x n2 x d_out x d_out
+        kG = k.gradXY(f(X), f(Y))
+
+        g_feat_X = torch.empty((d_out, nx, dx),
+                               dtype=X.dtype,
+                               device=X.device)
+        for i_o in range(d_out):
+            g_feat_X[i_o] = f.component_grad(X, i_o).reshape(nx, dx)
+
+        if Y is X:
+            G = torch.einsum('ink, nmij, jmk->nm', g_feat_X, kG, g_feat_X)
+            return G
+
+        g_feat_Y = torch.empty((d_out, ny, dy),
+                               dtype=X.dtype,
+                               device=X.device)
+        for i_o in range(d_out):
+            g_feat_Y[i_o] = f.component_grad(Y, i_o).reshape(nx, dy)
+
+        G = torch.einsum('ink, nmij, jmk->nm', g_feat_X, kG, g_feat_Y)
+        return G
+
+
+class BKGauss(DifferentiableKernel):
     """
     Pytorch implementation of the isotropic Gaussian kernel.
     Parameterization is the same as in the density of the standard normal
@@ -201,13 +453,13 @@ class PTKGauss(KSTKernel):
         assert d1==d2, 'Two inputs must have the same dimension'
         D2 = torch.sum( (X-Y)**2, 1)
         sigma2 = torch.sqrt(self.sigma2**2)
-        Kvec = torch.exp(old_div(-D2, (2.0*sigma2)))
+        Kvec = torch.exp(-D2/(2.0*sigma2))
         return Kvec
 
     def __str__(self):
         return "PTKGauss(%.3f)" % self.sigma2
 
-    def gradX_Y(self, X, Y, dim):
+    def gradX(self, X, Y):
         """
         Compute the gradient with respect to the dimension dim of X in k(X, Y).
 
@@ -216,16 +468,58 @@ class PTKGauss(KSTKernel):
 
         Return a Torch tensor of size nx x ny.
         """
-        sigma2 = self.sigma2
+        sigma2 = torch.sqrt(self.sigma2)**2
+        K = self.eval(X, Y)
+        Diff = X.unsqueeze(1) - Y.unsqueeze(0)
+        #Diff = np.reshape(X[:, dim], (-1, 1)) - np.reshape(Y[:, dim], (1, -1))
+        G = -torch.einsum('ij,ijk->ijk', K, Diff/sigma2)
+        return G
+
+    def gradXY(self, X, Y):
+        (n1, d1) = X.shape
+        (n2, d2) = Y.shape
+        assert d1==d2, 'Dimensions of the two inputs must be the same'
+        sigma2 = torch.sqrt(self.sigma2)**2
+        D2 = util.pt_dist2_matrix(X, Y) 
+        diff = (X.unsqueeze(1) - Y.unsqueeze(0))
+        outer = diff.unsqueeze(3) * diff.unsqueeze(2)
+        outer = -outer/sigma2
+        idx = torch.arange(d1)
+        outer[:, :, idx, idx] += 1.
+        K = torch.exp(-D2/(2.0*sigma2))
+        G = torch.einsum('ij,ijkl->ijkl', K/sigma2, (outer))
+        return G
+
+
+class KGauss(BKGauss, KSTKernel):
+    def __init__(self, sigma2):
+        """
+        sigma2: a number representing squared width
+        """
+        super(KGauss, self).__init__(sigma2)
+
+    def parX(self, X, Y, dim):
+        """
+        Compute the gradient with respect to the dimension dim of X in k(X, Y).
+
+        X: nx x d
+        Y: ny x d
+
+        Return a Torch tensor of size nx x ny.
+        """
+        sigma2 = torch.sqrt(self.sigma2)**2
         K = self.eval(X, Y)
         Diff = X[:, [dim]] - Y[:, [dim]].T
         #Diff = np.reshape(X[:, dim], (-1, 1)) - np.reshape(Y[:, dim], (1, -1))
         G = -K*Diff/sigma2
         return G
+    
+    def parY(self, X, Y, dim):
+        return self.parX(Y, X, dim).T
 
     def gradXY_sum(self, X, Y):
         """
-        Compute \sum_{i=1}^d \frac{\partial^2 k(X, Y)}{\partial x_i \partial y_i}
+        Compute \sum_{i=1}^d \frac{\par^2 k(X, Y)}{\par x_i \par y_i}
         evaluated at each x_i in X, and y_i in Y.
 
         X: nx x d numpy array.
@@ -237,11 +531,67 @@ class PTKGauss(KSTKernel):
         (n2, d2) = Y.shape
         assert d1==d2, 'Dimensions of the two inputs must be the same'
         d = d1
-        sigma2 = self.sigma2
+        sigma2 = torch.sqrt(self.sigma2)**2
         D2 = torch.sum(X**2, 1).view(n1, 1) - 2*torch.matmul(X, Y.T) + torch.sum(Y**2, 1).view(1, n2)
         K = torch.exp(-D2/(2.0*sigma2))
         G = K/sigma2 *(d - D2/sigma2)
         return G
+
+
+class PTExplicitKernel(Kernel):
+    """
+    A class for kernel that is defined as 
+        k(x,y) = <f(x), f(y)> 
+    for a finite-output f (of type FeatureMap).
+    """
+
+    def __init__(self, fm):
+        """
+        fm: a FeatureMap parameterizing the kernel. This feature map is
+            expected to take in a Pytorch tensor as the input.
+        """
+        self.fm = fm
+
+    @abstractmethod
+    def eval(self, X, Y):
+        """
+        Evaluate the kernel on Pytorch tensors X and Y
+        X: nx x d where each row represents one point
+        Y: ny x d
+        return nx x ny Gram matrix
+        """
+        f = self.fm
+        FX = f(X)
+        FY = f(Y)
+        K = FX.mm(FY.t())
+        return K
+
+    def pair_eval(self, X, Y):
+        """Evaluate k(x1, y1), k(x2, y2), ...
+        
+        X: n x d where each row represents one point
+        Y: n x d
+        return a 1d Pytorch array of length n.
+        """
+        f = self.fm
+        FX = f(X)
+        FY = f(Y)
+        vec = torch.sum(FX * FY, 1)
+        return vec
+
+    # def is_compatible(self, k):
+    #     """
+    #     This compatibility check is very weak.
+    #     """
+    #     if isinstance(k, PTExplicitKernel):
+    #         fm1 = self.fm
+    #         fm2 = k.fm
+    #         return fm1.input_shape() == fm2.input_shape() and \
+    #                 fm1.output_shape() == fm2.output_shape()
+    #     return False
+
+    def get_feature_map(self):
+        return self.fm
 
 
 class KIMQ(KSTKernel):
@@ -256,12 +606,12 @@ class KIMQ(KSTKernel):
             raise ValueError("c has to be positive. Was {}".format(c))
         self.b = b
         self.c = c
-        self.s2 = s2
+        self.s2 = torch.tensor(s2) if not isinstance(s2, torch.Tensor) else s2.clone()
 
     def eval(self, X, Y):
         b = self.b
         c = self.c
-        s2 = self.s2
+        s2 = torch.sqrt(self.s2)**2
         sumx2 = torch.sum(X ** 2, 1).reshape(-1, 1)
         sumy2 = torch.sum(Y ** 2, 1).reshape(1, -1)
         # D2 = sumx2 - 2.0 * X.mm(Y.t()) + sumy2
@@ -273,10 +623,15 @@ class KIMQ(KSTKernel):
         assert X.shape[0] == Y.shape[0]
         b = self.b
         c = self.c
-        s = self.s2**0.5
+        s = torch.sqrt(self.s2)
         return (c ** 2 + torch.sum(((X - Y)/s) ** 2, 1)) ** b
 
-    def gradX_Y(self, X, Y, dim):
+    def gradX(self, X, Y, shift=-1):
+        d = X.shape[1]
+        G = torch.stack([self.parX(X, Y, j) for j in range(d)])
+        return G.permute(1, 2, 0)
+
+    def parX(self, X, Y, dim):
         """
         Compute the gradient with respect to the dimension dim of X in k(X, Y).
 
@@ -285,7 +640,7 @@ class KIMQ(KSTKernel):
 
         Return a numpy array of size nx x ny.
         """
-        s2 = self.s2
+        s2 = torch.sqrt(self.s2)**2
         D2 = util.pt_dist2_matrix(X, Y)
         # 1d array of length nx
         Xi = X[:, dim]
@@ -304,7 +659,7 @@ class KIMQ(KSTKernel):
     def gradXY_sum(self, X, Y):
         """
         Compute
-        \sum_{i=1}^d \frac{\partial^2 k(X, Y)}{\partial x_i \partial y_i}
+        \sum_{i=1}^d \frac{\par^2 k(X, Y)}{\par x_i \par y_i}
         evaluated at each x_i in X, and y_i in Y.
 
         X: nx x d numpy array.
@@ -312,7 +667,7 @@ class KIMQ(KSTKernel):
 
         Return a nx x ny numpy array of the derivatives.
         """
-        s2 = self.s2
+        s2 = torch.sqrt(self.s2)**2
         b = self.b
         c = self.c
         D2 = util.pt_dist2_matrix(X, Y)
@@ -364,71 +719,6 @@ class KHamming(DKSTKernel):
         return torch.exp(-torch.mean(H, dim=1))
 
 
-class DKSTOnehotKernel(Kernel):
-    """
-    Interface specifiying methods a kernel has to implement to be used with 
-    the Discrete Kernelized Stein discrepancy test of Yang et al., 2018.
-
-    The input is expected to be categorical variables represented
-    by onehot encoding.
-    """
-
-    def __init__(self, n_cat):
-        self.n_cat = n_cat
-    
-    def gradX_Y(self, X, Y, dim, shift=-1):
-        """
-        Default: compute the (cyclic) backward difference with respect to
-        the dimension dim of X in k(X, Y).
-
-        X: nx x d x n_cat
-        Y: ny x d x n_cat
-
-        Return a numpy array of size nx x ny.
-        """
-
-        X_ = X.clone()
-        perm = util.cyclic_perm_matrix(self.n_cat, shift)
-        X_[:, dim] = X[:, dim] @ perm
-        return (self.eval(X, Y) - self.eval(X_, Y))
-
-    def gradY_X(self, X, Y, dim, shift=-1):
-        """
-        Default: compute the (cyclic) backward difference with respect to 
-        the dimension dim of Y in k(X, Y).
-
-        X: nx x d
-        Y: ny x d
-
-        Return a numpy array of size nx x ny.
-        """
-        return self.gradX_Y(Y, X, dim, shift).T
-
-    def gradXY_sum(self, X, Y, shift=-1):
-        """
-        Compute the trace term in the kernel function in Yang et al., 2018. 
-
-        X: nx x d x n_cat numpy array.
-        Y: ny x d x n_cat numpy array. 
-
-        Return a nx x ny numpy array of the derivatives.
-        """
-        nx = X.shape[0]
-        d = X.shape[1]
-        ny = Y.shape[0]
-        K = torch.zeros((nx, ny), dtype=X.dtype)
-        perm = util.cyclic_perm_matrix(self.n_cat, shift)
-        for j in range(d):
-            X_ = X.clone()
-            Y_ = Y.clone()
-            X_[:, j] = X[:, j] @ perm
-            Y_[:, j] = Y[:, j] @ perm
-            K += (self.eval(X, Y) + self.eval(X_, Y_)
-                  - self.eval(X_, Y) - self.eval(X, Y_))
-        return K
-
-# end DKSTKernel
-
 
 class OHKGauss(DKSTOnehotKernel):
     """Gaussian kernel defined on
@@ -476,3 +766,5 @@ class OHKGauss(DKSTOnehotKernel):
         diff2 = (X - Y)**2
         d2sum = torch.exp(-torch.sum(diff2.view(n, -1), axis=1))
         return torch.exp(-d2sum/self.sigma2)
+
+
