@@ -21,6 +21,7 @@ def ksd_ustat_gram(X, S, k):
     Returns:
         torch.tensor: n x n tensor
     """
+    # TODO extend to len(X.shape) > 2
     n = X.shape[0]
     dx = X.shape[1]
     # n x dy matrix of gradients
@@ -28,31 +29,41 @@ def ksd_ustat_gram(X, S, k):
     gram_score = S @ S.T
     # n x n
     K = k.eval(X, X)
-
-    B = torch.zeros((n, n), dtype=X.dtype,
-                    device=X.device)
-    C = torch.zeros((n, n), dtype=X.dtype,
-                    device=X.device)
-    for i in range(dx):
-        S_i = S[:, i]
-        B += k.gradX_Y(X, X, i)*S_i
-        C += (k.gradY_X(X, X, i).T * S_i).T
-
-    h = K*gram_score + B + C + k.gradXY_sum(X, X)
+    kG = k.gradX(X, X)
+    B = torch.einsum('ijk,jk->ij', kG, S)
+    h = K*gram_score + B + B.T + k.gradXY_sum(X, X)
     return h
 
 
-def ksd_ustat(X, score_fn, k):
+def first_order_ustat_variance(H):
+    n = H.shape[0]
+    Ht = H.clone()
+    idx = torch.arange(n)
+    Ht[idx, idx] = 0.
+    sum_sq = torch.sum(Ht)**2
+    frob_sq = torch.sum(Ht**2)
+    sum_matprod = torch.sum(torch.sum(Ht, axis=1)**2)
+    v1 = (4.*sum_matprod - 2.*frob_sq)/(n**2 * (n-1)**2)
+    v2 = sum_sq - 4.*sum_matprod + 2.*frob_sq
+    v2 *= (4*(n-2)+2)/((n-2)*(n-3)*(n*(n-1))**2)
+    variance = v1 - v2
+    return variance
+
+
+def ksd_ustat(X, score_fn, k, return_variance=False):
     """Computes KSD U-stat estimate"""
     n = X.shape[0]
     S = score_fn(X)
     H = ksd_ustat_gram(X, S, k)
     stat = (torch.sum(H) - torch.sum(torch.diag(H)))
     stat /= (n*(n-1))
-    return stat
+    if not return_variance:
+        return stat
+    variance = first_order_ustat_variance(H)    
+    return stat, variance
 
 
-def kcsd_ustat(X, Z, cond_score_fn, k, l):
+def kcsd_ustat(X, Z, cond_score_fn, k, l, return_variance=False):
     """Computes KSCD U-stat estimate"""
     n = X.shape[0]
     assert n == Z.shape[0]
@@ -62,7 +73,10 @@ def kcsd_ustat(X, Z, cond_score_fn, k, l):
     H = K * cond_ksd_gram
     stat = (torch.sum(H) - torch.sum(torch.diag(H)))
     stat /= (n*(n-1))
-    return stat
+    if not return_variance:
+        return stat
+    variance = first_order_ustat_variance(H)
+    return stat, variance
 
 
 def fssd_feat_tensor(X, V, score_fn, k):
@@ -72,13 +86,15 @@ def fssd_feat_tensor(X, V, score_fn, k):
 
     K = k.eval(X, V)  # n x J
     S = score_fn(X)
-    # dKdV = torch.stack([k.gradX_Y(X, V, i) for i in range(d)])
+    # dKdV = torch.stack([k.parX(X, V, i) for i in range(d)])
+    # dKdV = dKdV.permute(1, 0, 2)
+
     dKdV = torch.stack([k.gradX_y(X, V[i]) for i in range(J)])
+    dKdV = dKdV.permute(1, 2, 0)  # n x d x J tensor
+
     # dKdV = util.gradient(k.eval, 0, [X, V])
-    dKdV = dKdV.permute(1, 2, 0)
-    # n x d x J tensor
     SK = torch.einsum('ij,ik->ijk', S, K)
-    Xi = SK + dKdV
+    Xi = (SK + dKdV) / (d*J)**0.5
     return Xi
 
 
@@ -99,6 +115,15 @@ def fssd_ustat(X, V, score_fn, k, return_variance=False):
     mu = torch.mean(Tau, 0)
     variance = 4.*torch.mean((Tau@mu)**2) - 4*torch.sum(mu**2)**2
     return stat, variance
+
+
+def rkhs_reg_scale(X, k, reg=1e-4):
+    n = X.shape[0]
+    idx = torch.arange(n)
+    K = k.pair_eval(X, X)
+    gK = k.gradXY_sum(X, X)
+    norm_estimate = (reg + K.mean() + gK[idx, idx].mean())**0.5
+    return 1./norm_estimate
 
 
 class ApproximateScore:
@@ -130,7 +155,7 @@ class ApproximateScore:
         n, _ = X.shape
         js = self.joint_score_fn
         ns = self.n_sample if n_sample is None else n_sample
-        with torch.no_grad():
+        with torch.no_grad(), util.TorchSeedContext(seed):
             Z_batch = self.csampler.sample(ns, X, seed=seed)
         # Assuming the last two dims are [n, dx]
         # TODO this is not efficient
