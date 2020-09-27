@@ -75,6 +75,11 @@ class KSTKernel(Kernel, metaclass=ABCMeta):
         """
         pass
 
+    def gradX_y(self, X, y):
+        n = X.shape[0] 
+        Y = torch.stack([y]*n)
+        return util.gradient(self.eval, 0, [X, Y])
+
 # end KSTKernel
 
 
@@ -127,7 +132,7 @@ class DKSTKernel(Kernel):
         """
         nx, d = X.shape
         ny, _ = Y.shape
-        K = torch.zeros((nx, ny))
+        K = torch.zeros((nx, ny), dtype=X.dtype)
         lattice_ranges = self.lattice_ranges
         for j in range(d):
             X_ = X.clone()
@@ -244,10 +249,7 @@ class KIMQ(KSTKernel):
     Have not been tested. Be careful. 
     """
 
-    def __init__(self,
-                 b=torch.tensor([-0.5]),
-                 c=torch.tensor([1.0]),
-                 s2=torch.tensor([1.0])):
+    def __init__(self, b=-0.5, c=1.0, s2=1.0):
         if not b < 0:
             raise ValueError("b has to be negative. Was {}".format(b))
         if not c > 0:
@@ -313,12 +315,12 @@ class KIMQ(KSTKernel):
         s2 = self.s2
         b = self.b
         c = self.c
-        D2 = util.pt_dist2_matrix(X, Y) / s2
+        D2 = util.pt_dist2_matrix(X, Y)
 
         # d = input dimension
         d = X.shape[1]
-        c2D2 = c**2 + D2
-        T1 = -4.0*b*(b-1)*D2*(c2D2**(b-2)) / s2
+        c2D2 = c**2 + D2/s2
+        T1 = -4.0*b*(b-1)*D2*(c2D2**(b-2)) / (s2**2)
         T2 = -2.0*b*d*c2D2**(b-1) / s2
         return T1 + T2
 
@@ -357,7 +359,7 @@ class KHamming(DKSTKernel):
         """
         assert X.shape == Y.shape
         n, d = X.shape
-        H = torch.zeros((n, d))
+        H = torch.zeros((n, d), dtype=X.dtype)
         H[X!=Y] = 1
         return torch.exp(-torch.mean(H, dim=1))
 
@@ -414,7 +416,7 @@ class DKSTOnehotKernel(Kernel):
         nx = X.shape[0]
         d = X.shape[1]
         ny = Y.shape[0]
-        K = torch.zeros((nx, ny))
+        K = torch.zeros((nx, ny), dtype=X.dtype)
         perm = util.cyclic_perm_matrix(self.n_cat, shift)
         for j in range(d):
             X_ = X.clone()
