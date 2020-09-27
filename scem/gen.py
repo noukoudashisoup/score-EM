@@ -26,6 +26,9 @@ class ConditionalSampler(metaclass=ABCMeta):
         """
         pass
 
+    def log_den(self, *args, **kwargs):
+        pass
+        
 
 class CSNoiseTransformer(ConditionalSampler,
                          nn.Module):
@@ -75,20 +78,32 @@ class PTPPCAPosterior(ConditionalSampler):
         super(PTPPCAPosterior, self).__init__()
         self.ppca = ppca
 
+        W = ppca.weight
+        _, dz = W.shape
+        var = ppca.var
+        cov = torch.pinverse(
+            torch.eye(dz) + (W.T @ W)/var)
+        self.cov = cov
+
+    def _mean_cov(self, X):
+        var = self.ppca.var
+        cov = self.cov
+        mean = (X@W)@cov / var
+        return mean, cov
+
     def sample(self, n_sample, X,
                seed=3,
                ):
+        n = X.shape[0]
+        W = self.ppca.weight
+        _, dz = W.shape
+        mean, cov = self._mean_cov(X)
         with util.TorchSeedContext(seed):
-            n = X.shape[0]
-            W = self.ppca.weight
-            _, dz = W.shape
-            var = self.ppca.var
-            cov = torch.pinverse(
-                torch.eye(dz) + (W.T @ W)/var)
-            mean = (X@W)@cov / var
             Z = (mean + torch.randn([n_sample, n, dz]) @ cov)
         return Z
     
+    
+
 
 class PTCSGaussLinearMean(CSNoiseTransformer):
     """Gaussian distribution    of the form
@@ -172,7 +187,7 @@ class CSGRBMBernoulliFamily(ConditionalSampler,
             [n_sample,] + X.shape + [2,]
         """
         probs = self.forward(X)
-        temp = torch.tensor([1.])
+        temp = torch.tensor([1.], dtype=X.dtype)
         if self.training:
             m = dists.RelaxedOneHotCategorical(
                 temp,
@@ -271,6 +286,49 @@ class Implicit(ConditionalSampler, nn.Module):
         return self.forward(X)
 
 
+
+
+class CSNoiseTransformerAdapter(CSNoiseTransformer):
+    """Construct a CSNoiseTransformer having a given 
+    torch.nn.Module as the transformation function.
+     
+    Attributes:
+        - module (torch.nn.Module):
+            A module serves as  a forward function.
+            Assume that it has arguments f(X, noise) 
+        - noise_sampler:
+            noise sampler
+        - in_out_shapes:
+            tuple of the input and output shapes of noise
+        - tensor_type:
+            defines a tensor type of the noise 
+        
+    """
+
+    def __init__(self, module, noise_sampler, in_out_shapes, tensor_type=torch.cuda.FloatTensor):
+        super(CSNoiseTransformerAdapter, self).__init__()
+        self.module = module
+        self.noise_sampler = noise_sampler
+        self.in_out_shapes = in_out_shapes
+        self.tensor_type = tensor_type
+
+    def forward(self, noise, X, *args, **kwargs):
+        return self.module.forward(noise, X, *args, **kwargs)
+
+    def sample_noise(self, n_sample, n, seed=13):
+        """Returns (n_sample, n,)+in_out_shape[0] tensor"""
+        tt = self.tensor_type
+        noise = self.noise_sampler(n_sample, n, seed).type(tt)
+        return noise
+
+    def in_out_shapes(self):
+        return self.in_out_shapes
+    
+    def sample(self, n_sample, X, seed=13):
+        n = X.shape[0]
+        noise = self.sample_noise(n_sample, n, seed)
+        Z = self.forward(noise, X)
+        return Z
 
 
 def main():
