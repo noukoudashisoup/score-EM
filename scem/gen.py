@@ -247,6 +247,31 @@ class CSFactorisedGaussian(ConditionalSampler, nn.Module):
             noise = torch.randn(n_sample, n, d)
         return v * noise + m
 
+class Implicit(ConditionalSampler, nn.Module):
+
+    def __init__(self, dx, dz, dh):
+        super(Implicit, self).__init__()
+        self.dx = dx
+        self.dz = dz
+        self.dh = dh 
+        self.layer_1 = nn.Linear(dx+dz, dh)
+        self.layer_2 = nn.Linear(dh, dz)
+
+    def forward(self, X):
+
+        h = self.layer_1(X).relu()
+        m = self.layer_2(h)
+        return m
+    
+    def sample(self, n_sample, X, seed=3):
+        n,d = X.shape
+        noise = torch.randn(n_sample, n, self.dz)
+        X = torch.stack([X]*n_sample, axis=0)
+        X = torch.cat([X, noise], -1)
+        return self.forward(X)
+
+
+
 
 def main():
     from scem.ebm import PPCA
