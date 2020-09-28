@@ -33,6 +33,9 @@ class Kernel(object, metaclass=ABCMeta):
 
 
 class DifferentiableKernel(Kernel):
+    """Class representing differentiable kernels.
+    All subclasses should have a prefix B.
+    """
 
     def pair_gradX(self, X, Y):
         assert X.shape == Y.shape
@@ -174,6 +177,7 @@ class DKSTKernel(Kernel):
 
 # end DKSTKernel
 
+
 class DKSTOnehotKernel(Kernel):
     """
     Interface specifiying methods a kernel has to implement to be used with 
@@ -249,6 +253,7 @@ class DKSTOnehotKernel(Kernel):
 class FeatureMap(metaclass=ABCMeta):
     """
     Abstract class for a feature map of a kernel.
+    Assume the map is differentiable.
     """
 
     @abstractmethod
@@ -274,6 +279,10 @@ class FeatureMap(metaclass=ABCMeta):
         """
         raise NotImplementedError()
 
+    def component_grad(self, X, idx):
+        def f_(X):
+            return self(X)[:, idx]
+        return util.gradient(f_, 0, [X])
 
 # end class FeatureMap
 
@@ -299,10 +308,6 @@ class FuncFeatureMap(FeatureMap):
     def output_shape(self):
         return self.out_shape
 
-    def component_grad(self, X, idx):
-        def f_(X):
-            return self.f(X)[:, idx]
-        return util.gradient(f_, 0, [X])
  
 
 class KFuncCompose(Kernel):
@@ -355,7 +360,7 @@ class KSTFuncCompose(KFuncCompose, KSTKernel):
         d_out = f.output_shape()[0]
 
         # n1 x n2 x d_out
-        kG = k.gradX(X, Y)
+        kG = k.gradX(f(X), f(Y))
 
         g_feat_X = torch.empty((d_out, nx, dx),
                                dtype=X.dtype,
@@ -457,7 +462,7 @@ class BKGauss(DifferentiableKernel):
         return Kvec
 
     def __str__(self):
-        return "PTKGauss(%.3f)" % self.sigma2
+        return "KGauss(%.3f)" % self.sigma2
 
     def gradX(self, X, Y):
         """
@@ -612,9 +617,6 @@ class KIMQ(KSTKernel):
         b = self.b
         c = self.c
         s2 = torch.sqrt(self.s2)**2
-        sumx2 = torch.sum(X ** 2, 1).reshape(-1, 1)
-        sumy2 = torch.sum(Y ** 2, 1).reshape(1, -1)
-        # D2 = sumx2 - 2.0 * X.mm(Y.t()) + sumy2
         D2 = util.pt_dist2_matrix(X, Y)
         K = (c ** 2 + D2/s2**2) ** b
         return K
@@ -717,7 +719,6 @@ class KHamming(DKSTKernel):
         H = torch.zeros((n, d), dtype=X.dtype)
         H[X!=Y] = 1
         return torch.exp(-torch.mean(H, dim=1))
-
 
 
 class OHKGauss(DKSTOnehotKernel):

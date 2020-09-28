@@ -103,8 +103,6 @@ class PTPPCAPosterior(ConditionalSampler):
         return Z
     
     
-
-
 class PTCSGaussLinearMean(CSNoiseTransformer):
     """Gaussian distribution    of the form
     N(Ax+b, W W^T) where
@@ -262,6 +260,7 @@ class CSFactorisedGaussian(ConditionalSampler, nn.Module):
             noise = torch.randn(n_sample, n, d)
         return v * noise + m
 
+
 class Implicit(ConditionalSampler, nn.Module):
 
     def __init__(self, dx, dz, dh):
@@ -279,13 +278,11 @@ class Implicit(ConditionalSampler, nn.Module):
         return m
     
     def sample(self, n_sample, X, seed=3):
-        n,d = X.shape
+        n, d = X.shape
         noise = torch.randn(n_sample, n, self.dz)
         X = torch.stack([X]*n_sample, axis=0)
         X = torch.cat([X, noise], -1)
         return self.forward(X)
-
-
 
 
 class CSNoiseTransformerAdapter(CSNoiseTransformer):
