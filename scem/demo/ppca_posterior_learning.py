@@ -23,7 +23,7 @@ def main():
     X = Z @ W.T + torch.randn(n, dx) * var**0.5
 
     med2 = util.pt_meddistance(X, seed=seed+1)**2
-    kx = kernel.PTKGauss(torch.tensor([med2]))
+    kx = kernel.KGauss(torch.tensor([med2]))
 
     # q(z|x)
     cs = gen.PTCSGaussLinearMean(dx, dz)
@@ -46,7 +46,7 @@ def main():
     # kcsd training
     T = 2000
     n_sample = 200
-    kz = kernel.PTKGauss(torch.tensor([1.0]))
+    kz = kernel.KGauss(torch.tensor([1.0]))
     for t in range(T):
         Z = cs.sample(1, X, seed+t)
         Z = Z.squeeze(0)

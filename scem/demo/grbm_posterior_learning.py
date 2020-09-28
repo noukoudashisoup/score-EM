@@ -27,7 +27,7 @@ def main():
 
     # define kernels
     med2 = util.pt_meddistance(X)**2
-    kx = kernel.PTKGauss(torch.tensor([med2]))
+    kx = kernel.KGauss(torch.tensor([med2]))
     kz = kernel.OHKGauss(n_cat, torch.tensor([dz*1.0]))
 
     # q(z|x)
