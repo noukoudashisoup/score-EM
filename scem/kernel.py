@@ -378,7 +378,7 @@ class KSTFuncCompose(KFuncCompose, KSTKernel):
         assert len(f.output_shape()) == 1
         d_out = f.output_shape()[0]
         nx = X.shape[0]
-        ny = Y.shape[1]
+        ny = Y.shape[0]
         dx = X[0].numel()
         dy = Y[0].numel()
         assert dx == dy
@@ -397,10 +397,10 @@ class KSTFuncCompose(KFuncCompose, KSTKernel):
             return G
 
         g_feat_Y = torch.empty((d_out, ny, dy),
-                               dtype=X.dtype,
-                               device=X.device)
+                               dtype=Y.dtype,
+                               device=Y.device)
         for i_o in range(d_out):
-            g_feat_Y[i_o] = f.component_grad(Y, i_o).reshape(nx, dy)
+            g_feat_Y[i_o] = f.component_grad(Y, i_o).reshape(ny, dy)
 
         G = torch.einsum('ink, nmij, jmk->nm', g_feat_X, kG, g_feat_Y)
         return G
@@ -485,14 +485,14 @@ class BKGauss(DifferentiableKernel):
         (n2, d2) = Y.shape
         assert d1==d2, 'Dimensions of the two inputs must be the same'
         sigma2 = torch.sqrt(self.sigma2)**2
-        D2 = util.pt_dist2_matrix(X, Y) 
         diff = (X.unsqueeze(1) - Y.unsqueeze(0))
         outer = diff.unsqueeze(3) * diff.unsqueeze(2)
-        outer = -outer/sigma2
+        outer = -outer
         idx = torch.arange(d1)
-        outer[:, :, idx, idx] += 1.
-        K = torch.exp(-D2/(2.0*sigma2))
-        G = torch.einsum('ij,ijkl->ijkl', K/sigma2, (outer))
+        outer[:, :, idx, idx] += sigma2
+        K = self.eval(X, Y)
+        G = torch.einsum('ij,ijkl->ijkl', K, outer)/(sigma2**2)
+        # print(K[0, 0]/sigma2 * outer[0, 0] - G[0, 0])
         return G
 
 
@@ -599,6 +599,73 @@ class PTExplicitKernel(Kernel):
         return self.fm
 
 
+class BKIMQ(DifferentiableKernel):
+    
+    def __init__(self, b=-0.5, c=1.0):
+        if not b < 0:
+            raise ValueError("b has to be negative. Was {}".format(b))
+        if not c > 0:
+            raise ValueError("c has to be positive. Was {}".format(c))
+        self.b = b
+        self.c = c
+
+    def eval(self, X, Y):
+        b = self.b
+        c = self.c
+        D2 = util.pt_dist2_matrix(X, Y)
+        K = (c ** 2 + D2) ** b
+        return K
+
+    def pair_eval(self, X, Y):
+        assert X.shape[0] == Y.shape[0]
+        b = self.b
+        c = self.c
+        return (c ** 2 + torch.sum(((X - Y)) ** 2, 1)) ** b
+
+    def gradX(self, X, Y, shift=-1):
+        """
+        Compute the gradient with respect to X in k(X, Y).
+
+        X: nx x d
+        Y: ny x d
+
+        Return a numpy array of size nx x ny x d
+        """
+        D2 = util.pt_dist2_matrix(X, Y)
+        diff = (X.unsqueeze(1) - Y.unsqueeze(0))
+
+        b = self.b
+        c = self.c
+        G = torch.einsum('ij,ijk->ijk', ( 2.0*b*(c**2 + D2)**(b-1) ), diff)
+        return G
+
+    def gradXY(self, X, Y):
+        """
+        Compute grad_x grad_y k(x, y)
+
+        X: nx x d torch.Tensor
+        Y: ny x d torch.Tensor
+
+        Return a nx x ny x d x d torch tensor of the derivatives.
+        """
+        (n1, d1) = X.shape
+        (n2, d2) = Y.shape
+        assert d1==d2, 'Dimensions of the two inputs must be the same'
+        b = self.b
+        c = self.c
+        diff = (X.unsqueeze(1) - Y.unsqueeze(0))
+        outer = diff.unsqueeze(3) * diff.unsqueeze(2)
+        D2 = util.pt_dist2_matrix(X, Y)
+        # d = input dimension
+        c2D2 = c**2 + D2
+    
+        G = torch.einsum('ij,ijkl->ijkl', -4.0*b*(b-1)*(c2D2**(b-2)), outer)
+        diag = -2.0*b*c2D2**(b-1)
+        for i in range(d1):
+            G[:, :, i, i] += diag
+        return G
+
+
 class KIMQ(KSTKernel):
     """Class of Inverse MultiQuadratic (IMQ) kernels.
     Have not been tested. Be careful. 
@@ -611,14 +678,15 @@ class KIMQ(KSTKernel):
             raise ValueError("c has to be positive. Was {}".format(c))
         self.b = b
         self.c = c
-        self.s2 = torch.tensor(s2) if not isinstance(s2, torch.Tensor) else s2.clone()
+        self.s2 = (torch.tensor(s2) if not isinstance(s2, torch.Tensor)
+                   else s2.clone())
 
     def eval(self, X, Y):
         b = self.b
         c = self.c
         s2 = torch.sqrt(self.s2)**2
         D2 = util.pt_dist2_matrix(X, Y)
-        K = (c ** 2 + D2/s2**2) ** b
+        K = (c ** 2 + D2/s2) ** b
         return K
 
     def pair_eval(self, X, Y):
@@ -653,7 +721,7 @@ class KIMQ(KSTKernel):
 
         b = self.b
         c = self.c
-        Gdim = ( 2.0*b*(c**2 + D2)**(b-1) )*dim_diff / s2
+        Gdim = ( 2.0*b*(c**2 + D2/s2)**(b-1) )*dim_diff / s2
         assert Gdim.shape[0] == X.shape[0]
         assert Gdim.shape[1] == Y.shape[0]
         return Gdim
