@@ -117,7 +117,7 @@ def fssd_ustat(X, V, score_fn, k, return_variance=False):
     return stat, variance
 
 
-def rkhs_reg_scale(X, k, reg=1e-4):
+def rkhs_reg_scale(X, k, reg=1e-4, sc=1.):
     from scem import kernel
     if not isinstance(k, kernel.KSTFuncCompose):
         raise ValueError()
@@ -132,7 +132,7 @@ def rkhs_reg_scale(X, k, reg=1e-4):
     for j in range(k.f.output_shape()[0]):
         grad = k.f.component_grad(X, j).reshape(n, -1)
         gK += torch.mean(torch.sum(grad**2, axis=1))
-    norm_estimate = (reg + 1. + 2.*gK)**0.5
+    norm_estimate = (reg + 1. + sc*2.*gK)**0.5
     return 1./norm_estimate
 
 
