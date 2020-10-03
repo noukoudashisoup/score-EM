@@ -60,7 +60,7 @@ class DifferentiableKernel(Kernel):
         dims = list(range(len(X.shape)))
         dims[0] = 1
         dims[1] = 0
-        return gradX(Y, X).permute(*dims)
+        return self.gradX(Y, X).permute(*dims)
         
     @abstractmethod
     def gradXY(self, X, Y):
@@ -309,7 +309,6 @@ class FuncFeatureMap(FeatureMap):
         return self.out_shape
 
  
-
 class KFuncCompose(Kernel):
     """
     A kernel given by k'(x,y) = k(f(x), f(y)), where f is the specified 
@@ -836,4 +835,146 @@ class OHKGauss(DKSTOnehotKernel):
         d2sum = torch.exp(-torch.sum(diff2.view(n, -1), axis=1))
         return torch.exp(-d2sum/self.sigma2)
 
+
+class KSTSumKernel(KSTKernel):
+    """Class representing a (weighted) sum of KST kernels
+
+    Attributes:
+        kernels:
+            A list or a tuple of KSTKernel objects
+        weight_tensor: 
+            Vector of weights in computing the sum.
+            Defaults to (1/T, .... 1/T) if
+            there are T kernels
+    """
+    def __init__(self, kernels, weight_tensor=None):
+        self.kernels = kernels
+        n_kernels = len(kernels)
+        self.n_kernels = n_kernels
+        default_w = torch.ones([n_kernels]) / n_kernels
+        self.weight_tensor = (weight_tensor if weight_tensor is not None
+                              else default_w
+                              )
+    
+    def _sum_op(self, X, Y, method_str,
+                shape_tuple, dtype, device):
+        ks = self.kernels
+        w = self.weight_tensor
+        K = torch.zeros(shape_tuple, dtype=dtype,
+                        device=device)
+        for i, k in enumerate(ks):
+            K += w[i] * getattr(k, method_str)(X, Y)
+        return K
+
+    def eval(self, X, Y):
+        nx, dx = X.shape
+        ny, dy = Y.shape
+        assert dx == dy
+
+        K = self._sum_op(X, Y, 'eval',
+                         [nx, ny],
+                         X.dtype, X.device)
+        return K
+    
+    def pair_eval(self, X, Y):
+        assert X.shape == Y.shape
+        n, d = X.shape
+        K = self._sum_op(X, Y, 'pair_eval',
+                         [n, ], X.dtype,
+                         X.device)
+        return K 
+
+    def gradX(self, X, Y):
+        nx, dx = X.shape
+        ny, dy = Y.shape
+        assert dx == dy
+
+        G = self._sum_op(X, Y, 'gradX',
+                         [nx, ny, dx],
+                         X.dtype, X.device)
+        return G
+    
+    def gradXY_sum(self, X, Y):
+        nx, dx = X.shape
+        ny, dy = Y.shape
+        assert dx == dy
+
+        G = self._sum_op(X, Y, 'gradXY_sum',
+                         [nx, ny],
+                         X.dtype, X.device)
+        return G
+
+
+class BKLinear(DifferentiableKernel):
+
+    def __init__(self):
+        super(BKLinear, self).__init__()
+    
+    def eval(self, X, Y):
+        return X @ Y.T
+
+    def pair_eval(self, X, Y):
+        return torch.sum(X * Y, axis=0)
+
+    def gradX(self, X, Y):
+        nx, dx = X.shape
+        ny, dy = Y.shape
+        assert dx == dy
+        
+        return torch.stack([Y for _ in range(nx)])
+    
+    def gradXY(self, X, Y):
+        nx, dx = X.shape
+        ny, dy = Y.shape
+        assert dx == dy
+        
+        G = torch.zeros([nx, nx, dx, dy], dtype=X.dtype,
+                        device=X.device)
+        idx = torch.arange(dx)
+        G[:, :, idx, idx] += 1.
+        return G
+
+class KSTProduct(KSTKernel):
+    """KSTKernel representing the product of two kernel
+
+    Attributes:
+        k1:
+            KSTKernel object
+        k2: 
+            KSTKernel object
+    """
+    def __init__(self, k1, k2):
+        self.k1 = k1
+        self.k2 = k2
+
+    def eval(self, X, Y):
+        K = self.k1.eval(X, Y)
+        K *= self.k2.eval(X, Y)
+        return K
+
+    def pair_eval(self, X, Y):
+        K = self.k1.pair_eval(X, Y)
+        K *= self.k2.pair_eval(X, Y)
+        return K
+
+    def gradX(self, X, Y):
+        k1 = self.k1
+        k2 = self.k2 
+        K1 = k1.eval(X, Y)
+        K2 = k2.eval(X, Y)
+        G1 = k1.gra/KdX(X, Y)
+        G2 = k2.gradX(X, Y)
+        T1 = torch.einsum('ij,ijk->ijk', K1, G2)
+        T2 = torch.einsum('ij,ijk->ijk', K2, G1)
+        return T1 + T2
+
+    def gradXY_sum(self, X, Y):
+        k1 = self.k1
+        k2 = self.k2
+        K1 = k1.eval(X, Y)
+        K2 = k2.eval(X, Y)
+        T1 = K1 * k2.gradXY_sum(X, Y) + K2*k1.gradXY_sum(X, Y)
+        T2 = torch.einsum('ijk,ijk->ij', k1.gradX(X, Y), k2.gradY(X, Y))
+        T2 += torch.einsum('ijk,ijk->ij', k2.gradX(X, Y), k1.gradY(X, Y))
+        return T1 + T2
 

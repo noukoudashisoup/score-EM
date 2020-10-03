@@ -117,25 +117,6 @@ def fssd_ustat(X, V, score_fn, k, return_variance=False):
     return stat, variance
 
 
-def rkhs_reg_scale(X, k, reg=1e-4, sc=1.):
-    from scem import kernel
-    if not isinstance(k, kernel.KSTFuncCompose):
-        raise ValueError()
-    
-    n = X.shape[0]
-    # idx = torch.arange(n)
-    # K = k.pair_eval(X, X)
-    # gK = k.gradXY_sum(X, X)
-    # norm_estimate = (reg + K.mean() + gK[idx, idx].mean())**0.5
-    # TODO correct this
-    gK = 0.
-    for j in range(k.f.output_shape()[0]):
-        grad = k.f.component_grad(X, j).reshape(n, -1)
-        gK += torch.mean(torch.sum(grad**2, axis=1))
-    norm_estimate = (reg + 1. + sc*2.*gK)**0.5
-    return 1./norm_estimate
-
-
 class ApproximateScore:
     """Approximate score of a latent EBM. 
     
