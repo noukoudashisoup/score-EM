@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+from scem import kernel
 
 
 class NumpySeedContext(object):
@@ -196,3 +197,32 @@ def cyclic_perm_matrix(n_cat, shift):
     perm = torch.eye(n_cat)
     perm = perm[(torch.arange(n_cat)+shift) % n_cat]
     return perm
+
+
+kernel_derivatives = {
+    kernel.BKGauss: lambda k: 1.,
+    kernel.BKIMQ: lambda k: -2*k.b*(k.c**2)**(k.b-1),
+    kernel.BKLinear: lambda k: 1.,
+}
+
+
+def rkhs_reg_scale(X, k, reg=1e-4, sc=1.):
+    if not isinstance(k, kernel.KSTFuncCompose):
+        raise ValueError('Currently this scaling '
+                         'only supports KSTFuncCompose.')
+    bk = k.k
+    der = kernel_derivatives[bk.__class__]
+    
+    n = X.shape[0]
+    gK = 0.
+    f = k.f
+    for j in range(f.output_shape()[0]):
+        grad = f.component_grad(X, j).reshape(n, -1)
+        gK += der(bk) * torch.mean(torch.sum(grad**2, axis=1))
+    norm_estimate = (reg + 1. + sc*2.*gK)**0.5
+
+    # idx = torch.arange(n)
+    # K = k.pair_eval(X, X)
+    # gK = k.gradXY_sum(X, X)
+    # norm_estimate = (reg + K.mean() + gK[idx, idx].mean())**0.5
+    return 1./norm_estimate
