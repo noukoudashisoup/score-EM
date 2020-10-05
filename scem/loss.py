@@ -110,12 +110,15 @@ class VNCE:
         n_data = X.shape[0]
         n_noise = int(n_data*nu)
 
+        # avoid noise being the same
+        # TODO other smart way?
+        # n_noise x x_dim
+        ys = ns.sample((n_noise,))
+
         with util.TorchSeedContext(seed):
             # csize x n x z_dim
             zs_x = cs.sample(csize, X)
-            # n_noise x x_dim
-            ys = ns.sample((n_noise,))
-            # csize x n x z_dim
+            # csize x n_noise x z_dim
             zs_y = cs.sample(csize, ys)
 
         X_ = torch.stack([X]*csize, 0)
@@ -125,13 +128,13 @@ class VNCE:
 
         log_ = self._log_plus_one
 
-        T1 = nu*(ns.log_prob(X) + cs.log_prob(X, zs_x) - Ex)
-        T1 = -log_(T1.exp()).mean()
+        T1 = (ns.log_prob(X) + cs.log_prob(X, zs_x) - Ex)
+        T1 = -log_(nu*T1.exp()).mean(0)
 
-        r = (Ey - cs.log_prob(ys, zs_y)).exp().mean(0)
-        r /= (nu * ns.log_prob(ys).exp())
-        T2 = -nu * (log_(r)).mean()
-        vnce_loss = T1 + T2
+        r = ((Ey - cs.log_prob(ys, zs_y)).exp().mean(0) /
+             (nu * ns.log_prob(ys).exp()))
+        T2 = -nu * (log_(r))
+        vnce_loss = (T1 + T2).mean()
 
         return vnce_loss
 
