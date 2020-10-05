@@ -43,6 +43,7 @@ class ScaledKSD(KSD):
     def loss(self, X):
         reg = self.reg
         gsc = self.gradient_scale
+        k = self.k
         scale = util.rkhs_reg_scale(X, k, reg, gsc)
         ksdsq = super(ScaledKSD, self).loss(X)
         return scale**2 * ksdsq
@@ -110,23 +111,26 @@ class VNCE:
         n_noise = int(n_data*nu)
 
         with util.TorchSeedContext(seed):
-            # csize x n
+            # csize x n x z_dim
             zs_x = cs.sample(csize, X)
+            # n_noise x x_dim
             ys = ns.sample((n_noise,))
-            # csize x n
+            # csize x n x z_dim
             zs_y = cs.sample(csize, ys)
 
-        Ex = lebm(X, zs_x)
-        Ey = lebm(ys, zs_y)
+        X_ = torch.stack([X]*csize, 0)
+        Ex = lebm(X_, zs_x)
+        ys_ = torch.stack([ys]*csize, 0)
+        Ey = lebm(ys_, zs_y)
 
         log_ = self._log_plus_one
 
         T1 = nu*(ns.log_prob(X) + cs.log_prob(X, zs_x) - Ex)
         T1 = -log_(T1.exp()).mean()
 
-        T2 = (Ey - cs.log_prob(ys, zs_y)).exp().mean(0)
-        T2 /= (nu * ns.log_prob(ys).exp())
-        T2 = (-nu * log_(T2)).mean()
+        r = (Ey - cs.log_prob(ys, zs_y)).exp().mean(0)
+        r /= (nu * ns.log_prob(ys).exp())
+        T2 = -nu * (log_(r)).mean()
         vnce_loss = T1 + T2
 
         return vnce_loss
