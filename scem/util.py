@@ -199,19 +199,12 @@ def cyclic_perm_matrix(n_cat, shift):
     return perm
 
 
-kernel_derivatives = {
-    kernel.BKGauss: lambda k: 1.,
-    kernel.BKIMQ: lambda k: -2*k.b*(k.c**2)**(k.b-1),
-    kernel.BKLinear: lambda k: 1.,
-}
-
-
 def rkhs_reg_scale(X, k, reg=1e-4, sc=1.):
     if not isinstance(k, kernel.KSTFuncCompose):
         raise ValueError('Currently this scaling '
                          'only supports KSTFuncCompose.')
     bk = k.k
-    der = kernel_derivatives[bk.__class__]
+    der = kernel.kernel_derivatives[bk.__class__]
     
     n = X.shape[0]
     gK = 0.

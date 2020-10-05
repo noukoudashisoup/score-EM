@@ -26,7 +26,7 @@ class ConditionalSampler(metaclass=ABCMeta):
         """
         pass
 
-    def log_den(self, *args, **kwargs):
+    def log_prob(self, X, Z, *args, **kwargs):
         pass
         
 
@@ -259,6 +259,10 @@ class CSFactorisedGaussian(ConditionalSampler, nn.Module):
         with util.TorchSeedContext(seed):
             noise = torch.randn(n_sample, n, d)
         return v * noise + m
+    
+    def log_prob(self, X, Z):
+        m, v = self.forward(X)
+        return dists.Normal(m, v).log_prob(Z).sum(-1)
 
 
 class Implicit(ConditionalSampler, nn.Module):

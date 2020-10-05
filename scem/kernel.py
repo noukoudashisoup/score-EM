@@ -978,3 +978,9 @@ class KSTProduct(KSTKernel):
         T2 += torch.einsum('ijk,ijk->ij', k2.gradX(X, Y), k1.gradY(X, Y))
         return T1 + T2
 
+
+kernel_derivatives = {
+    BKGauss: lambda k: 1.,
+    BKIMQ: lambda k: -2*k.b*(k.c**2)**(k.b-1),
+    BKLinear: lambda k: 1.,
+}
