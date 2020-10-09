@@ -242,13 +242,13 @@ class CSFactorisedGaussian(ConditionalSampler, nn.Module):
         self.dz = dz
         self.dh = dh 
         self.layer_1 = nn.Linear(dx, dh)
-        self.layer_2 = nn.Linear(dh, dh)
+        #self.layer_2 = nn.Linear(dh, dh)
         self.layer_2_m = nn.Linear(dh, dz)
         self.layer_2_v = nn.Linear(dh, dz)
 
     def forward(self, X):
-        h = self.layer_1(X).tanh()
-        h = self.layer_2(h).tanh()
+        h = self.layer_1(X).relu()
+        #h = self.layer_2(h).relu()
         m = self.layer_2_m(h)
         v = self.layer_2_v(h)
         v = nn.functional.softplus(v)
@@ -268,6 +268,9 @@ class CSFactorisedGaussian(ConditionalSampler, nn.Module):
         m, v = self.forward(X)
         return dists.Normal(m, v).log_prob(Z).sum(-1)
 
+    def likelihood(self, X):
+        m, v = self.forward(X)
+        return dists.Normal(m, v)
 
 class Implicit(ConditionalSampler, nn.Module):
 
