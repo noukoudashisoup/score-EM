@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 import torch.distributions as dists
-from scem import stein
+from scem import stein, net
 from scem import util
 from abc import ABCMeta, abstractmethod
 from torch.nn.parameter import Parameter
@@ -272,6 +272,7 @@ class CSFactorisedGaussian(ConditionalSampler, nn.Module):
         m, v = self.forward(X)
         return dists.Normal(m, v)
 
+
 class Implicit(ConditionalSampler, nn.Module):
 
     def __init__(self, dx, dz, dh):
@@ -281,10 +282,12 @@ class Implicit(ConditionalSampler, nn.Module):
         self.dh = dh 
         self.layer_1 = nn.Linear(dx+dz, dh)
         self.layer_2 = nn.Linear(dh, dz)
+        self.elu = nn.ELU()
 
     def forward(self, X):
 
-        h = self.layer_1(X).relu()
+        # h = self.layer_1(X).relu()
+        h = self.elu(self.layer_1(X))
         m = self.layer_2(h)
         return m
     
@@ -294,7 +297,7 @@ class Implicit(ConditionalSampler, nn.Module):
         X = torch.stack([X]*n_sample, axis=0)
         X = torch.cat([X, noise], -1)
         return self.forward(X)
-
+    
 
 class CSNoiseTransformerAdapter(CSNoiseTransformer):
     """Construct a CSNoiseTransformer having a given 
@@ -338,6 +341,49 @@ class CSNoiseTransformerAdapter(CSNoiseTransformer):
         Z = self.forward(noise, X)
         return Z
 
+
+class CSDiscreteImplicit(CSNoiseTransformer):
+    
+    def __init__(self, dim_in, dim_noise, n_logits,
+                 n_classes, Dh1, Dh2, Df):
+        super(CSDiscreteImplicit, self).__init__()
+        self.dim_in = dim_in
+        self.dim_noise = dim_noise
+        self.n_logits = n_logits
+        self.n_classes = n_classes
+        self.mlinear = net.MultipleLinear(Df, n_classes, n_logits)
+        self.feat = net.TwoLayerFC(dim_in+dim_noise, Dh1, Dh2,
+                                   Df, activation=nn.ELU)
+
+    def forward(self, noise, X):
+        n_sample = noise.shape[0]
+        X_ = torch.stack([X]*n_sample)
+        X_ = torch.cat([noise, X_], -1)
+        Y = self.feat(X_)
+        return Y
+
+    def sample_noise(self, n_sample, n, seed=13):
+        with util.TorchSeedContext(seed):
+            noise = torch.randn(n_sample, n, self.dim_noise)
+        return noise
+    
+    def in_out_shapes(self):
+        return ((self.dim_noise,), (self.Df))
+    
+    def sample(self, n_sample, X, seed=13):
+        n = X.shape[0]
+        noise = self.sample_noise(n_sample, n, seed)
+        out = self.forward(noise, X)
+        logits = self.mlinear(out)
+        if self.training:
+            m = dists.RelaxedOneHotCategorical(
+                0.1,
+                logits=logits
+            )
+            return m.rsample()
+        else:
+            m = dists.OneHotCategorical(logits=logits)
+            return m.sample()
 
 def main():
     from scem.ebm import PPCA
