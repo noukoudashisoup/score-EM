@@ -139,8 +139,31 @@ class VNCE:
         return vnce_loss
 
 
-class ELBO:
+class ConditionalKL(_Loss):
+    """averaged KL divergence for training
+    approximate posterior: E_x KL[q(z|x)|| p(z|x)]
+    """
+    def __init__(self, csampler, lebm, n_sample=1):
+        self.csampler = csampler
+        if not hasattr(csampler, 'log_prob'):
+            raise ValueError(('{}: KL requires log density.'
+                              ).format(csampler.__class__))
+        self.lebm = lebm
+    
+    def loss(self, X, Z):
+        """
+        compute the loss
+        """
+        cs = self.csampler
+        lebm = self.lebm
+        log_q = cs.log_prob(X, Z)
+        log_p = lebm(X, Z)
+        return (log_q - log_p).mean()
+
+
+class DSM(_Loss):
     pass
+
 
 
 def main():
