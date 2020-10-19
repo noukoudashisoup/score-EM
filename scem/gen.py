@@ -7,7 +7,7 @@ from scem import stein, net
 from scem import util
 from abc import ABCMeta, abstractmethod
 from torch.nn.parameter import Parameter
-
+from torch.distributions.utils import clamp_probs
 
 class ConditionalSampler(metaclass=ABCMeta):
     """Abstract class of conditional distributions"""
@@ -286,8 +286,8 @@ class Implicit(ConditionalSampler, nn.Module):
 
     def forward(self, X):
 
-        # h = self.layer_1(X).relu()
-        h = self.elu(self.layer_1(X))
+        h = self.layer_1(X).relu()
+        # h = self.elu(self.layer_1(X))
         m = self.layer_2(h)
         return m
     
@@ -340,50 +340,50 @@ class CSNoiseTransformerAdapter(CSNoiseTransformer):
         noise = self.sample_noise(n_sample, n, seed)
         Z = self.forward(noise, X)
         return Z
-
+   
 
 class CSDiscreteImplicit(CSNoiseTransformer):
-    
-    def __init__(self, dim_in, dim_noise, n_logits,
-                 n_classes, Dh1, Dh2, Df):
+    def __init__(self, din, dh1, dh2, dout, dnoise,
+                 n_classes, n_logits, temperature=1.):
         super(CSDiscreteImplicit, self).__init__()
-        self.dim_in = dim_in
-        self.dim_noise = dim_noise
+        self.din = din
+        self.dout = dout
+        self.dnoise = dnoise
         self.n_logits = n_logits
         self.n_classes = n_classes
-        self.mlinear = net.MultipleLinear(Df, n_classes, n_logits)
-        self.feat = net.TwoLayerFC(dim_in+dim_noise, Dh1, Dh2,
-                                   Df, activation=nn.ELU)
+        self.feat = net.TwoLayerFC(din+dnoise, dh1, dh2, dout)
+        self.mlinear = net.MultipleLinear(dout, n_classes, n_logits,
+                                          bias=True)
+        self.temperature = temperature
 
     def forward(self, noise, X):
         n_sample = noise.shape[0]
         X_ = torch.stack([X]*n_sample)
-        X_ = torch.cat([noise, X_], -1)
-        Y = self.feat(X_)
-        return Y
+        Xin = torch.cat([X_, noise], axis=-1)
+        return (self.feat(Xin))
 
-    def sample_noise(self, n_sample, n, seed=13):
-        with util.TorchSeedContext(seed):
-            noise = torch.randn(n_sample, n, self.dim_noise)
+    def sample_noise(self, n_sample, n, seed=14):
+        noise = torch.rand(n_sample, n, self.dnoise)
         return noise
     
     def in_out_shapes(self):
-        return ((self.dim_noise,), (self.Df))
-    
+        return ((self.dnoise,), self.dout) 
+
     def sample(self, n_sample, X, seed=13):
         n = X.shape[0]
-        noise = self.sample_noise(n_sample, n, seed)
-        out = self.forward(noise, X)
-        logits = self.mlinear(out)
+        noise = self.sample_noise(n_sample, n)
+        out = self.forward(noise, X).sigmoid()
+        logits = self.mlinear(out) / self.temperature
         if self.training:
-            m = dists.RelaxedOneHotCategorical(
-                0.1,
-                logits=logits
-            )
-            return m.rsample()
+            sample = torch.softmax(logits, dim=-1)
+            # print(sample)
         else:
-            m = dists.OneHotCategorical(logits=logits)
-            return m.sample()
+            max_values = torch.max(logits, dim=-1)[1]
+            sample = torch.eye(self.n_classes)[max_values]
+        return sample
+        # m = dists.OneHotCategorical(logits=logits)
+        # return m.sample()
+
 
 def main():
     from scem.ebm import PPCA

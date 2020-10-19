@@ -49,5 +49,6 @@ class MultipleLinear(nn.Module):
         b = (0. if self.bias is None
              else self.bias)
         if len(X.shape) == 2:
-            return torch.einsum('bi,ijk->bjk', X, W) + b
-        return torch.einsum('nbi, ijk->nbjk', X, W)
+            Y = torch.einsum('bi,ijk->bjk', X, W) + b
+            return Y
+        return torch.einsum('nbi, ijk->nbjk', X, W) + b
