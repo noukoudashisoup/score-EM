@@ -7,7 +7,7 @@ from scem import stein, net
 from scem import util
 from abc import ABCMeta, abstractmethod
 from torch.nn.parameter import Parameter
-from torch.distributions.utils import clamp_probs
+
 
 class ConditionalSampler(metaclass=ABCMeta):
     """Abstract class of conditional distributions"""
@@ -342,10 +342,10 @@ class CSNoiseTransformerAdapter(CSNoiseTransformer):
         return Z
    
 
-class CSDiscreteImplicit(CSNoiseTransformer):
+class CSCategoricalMixture(CSNoiseTransformer):
     def __init__(self, din, dh1, dh2, dout, dnoise,
                  n_classes, n_logits, temperature=1.):
-        super(CSDiscreteImplicit, self).__init__()
+        super(CSCategoricalMixture, self).__init__()
         self.din = din
         self.dout = dout
         self.dnoise = dnoise
@@ -363,7 +363,7 @@ class CSDiscreteImplicit(CSNoiseTransformer):
         return (self.feat(Xin))
 
     def sample_noise(self, n_sample, n, seed=14):
-        noise = torch.rand(n_sample, n, self.dnoise)
+        noise = torch.randn(n_sample, n, self.dnoise)
         return noise
     
     def in_out_shapes(self):
@@ -372,17 +372,19 @@ class CSDiscreteImplicit(CSNoiseTransformer):
     def sample(self, n_sample, X, seed=13):
         n = X.shape[0]
         noise = self.sample_noise(n_sample, n)
-        out = self.forward(noise, X).sigmoid()
+        out = self.forward(noise, X).relu()
         logits = self.mlinear(out) / self.temperature
         if self.training:
-            sample = torch.softmax(logits, dim=-1)
+            m = dists.RelaxedOneHotCategorical(
+                self.temperature,
+                logits=logits,
+            )
+            sample = m.rsample()
             # print(sample)
-        else:
-            max_values = torch.max(logits, dim=-1)[1]
-            sample = torch.eye(self.n_classes)[max_values]
+            return sample
+        m = dists.OneHotCategorical(logits=logits)
+        sample = m.sample()
         return sample
-        # m = dists.OneHotCategorical(logits=logits)
-        # return m.sample()
 
 
 def main():

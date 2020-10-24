@@ -14,8 +14,8 @@ def main():
     seed = 13
     torch.manual_seed(seed)
     n = 300
-    dx = 10 
-    dz = 3
+    dx = 10
+    dz = 10
 
     # instantiate a GRBM object
     n_cat = 2
@@ -31,7 +31,9 @@ def main():
     kz = kernel.OHKGauss(n_cat, torch.tensor([dz*1.0]))
 
     # q(z|x)
-    cs = gen.CSGRBMBernoulliFamily(dx, dz)
+    # cs = gen.CSGRBMBernoulliFamily(dx, dz)
+    cs = gen.CSCategoricalMixture(dx, 100, 50, 5, dz,
+                                  n_cat, dz, temperature=1e-1)
     cs.apply(init_weights)
     
     # optimizer settings
@@ -51,8 +53,7 @@ def main():
     T = 2000
     n_sample = 200
     for t in range(T):
-        Z = cs.sample(1, X, seed+t)
-        Z = Z.squeeze(0)
+        Z = cs.sample(1, X, seed+t)[0]
         loss = stein.kcsd_ustat(
             X, Z, grbm.score_joint_latent, kx, kz)
         
@@ -62,8 +63,7 @@ def main():
     
         if t%100 == 0:
             cs = cs.eval()
-            Z = cs.sample(1, X, seed+t)
-            Z = Z.squeeze(0)
+            Z = cs.sample(1, X, seed+t)[0]
             loss = stein.kcsd_ustat(
                 X, Z, grbm.score_joint_latent, kx, kz)
             marginal_score_mse = (torch.mean(
