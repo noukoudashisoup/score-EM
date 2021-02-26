@@ -219,3 +219,19 @@ def rkhs_reg_scale(X, k, reg=1e-4, sc=1.):
     # gK = k.gradXY_sum(X, X)
     # norm_estimate = (reg + K.mean() + gK[idx, idx].mean())**0.5
     return 1./norm_estimate
+
+
+def sample_incomplete_ustat_batch(n, batch_size):
+    cnt = 0
+    idx1 = []
+    idx2 = []
+    while cnt < batch_size:
+        i1 = torch.randint(0, n, [batch_size])
+        i2 = torch.randint(0, n, [batch_size])
+        comp_idx = (i1 < i2)
+        cnt += torch.sum(comp_idx)
+        idx1.append(i1[comp_idx])
+        idx2.append(i2[comp_idx])
+    idx1 = torch.cat(idx1)[:batch_size]
+    idx2 = torch.cat(idx2)[:batch_size]
+    return idx1, idx2

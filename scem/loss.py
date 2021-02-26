@@ -1,7 +1,7 @@
 """Module containing loss functions"""
 import torch
 from abc import abstractmethod, ABCMeta
-from scem.stein import ksd_ustat, kcsd_ustat
+from scem.stein import ksd_incomplete_ustat, ksd_ustat, kcsd_ustat
 from scem import util
 
 
@@ -47,6 +47,26 @@ class ScaledKSD(KSD):
         scale = util.rkhs_reg_scale(X, k, reg, gsc)
         ksdsq = super(ScaledKSD, self).loss(X)
         return scale**2 * ksdsq
+
+
+class IncompleteKSD(_Loss):
+    """
+
+    Attributes:
+        k: 
+            an object either of KSTKernel,
+            DKSTKernel, DKSTOnehotKernel
+        score_fn:
+            callable object representing
+    """
+    def __init__(self, k, score_fn):
+        self.k = k
+        self.score_fn = score_fn
+    
+    def loss(self, X1, X2):
+        score_fn = self.score_fn
+        k = self.k
+        return ksd_incomplete_ustat(X1, X2, score_fn, k)
 
 
 class KCSD(_Loss):

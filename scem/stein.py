@@ -6,7 +6,6 @@ for computing stein discrepancies.
 """
 import torch
 from scem import util
-from abc import abstractmethod, ABCMeta
 
 
 def ksd_ustat_gram(X, S, k):
@@ -32,6 +31,34 @@ def ksd_ustat_gram(X, S, k):
     kG = k.gradX(X, X)
     B = torch.einsum('ijk,jk->ij', kG, S)
     h = K*gram_score + B + B.T + k.gradXY_sum(X, X)
+    return h
+
+
+def ksd_incomp_ustat_gram(X1, X2, S1, S2, k):
+    """Returns the pairwise evaluation of 
+    a score-based Stein kernel
+
+    Args:
+        X1 (torch.Tensor): n x dx tensor
+        X2 (torch.Tensor): n x dx tensor
+        S1 (torch.Tensor): n x dx tensor 
+        S2 (torch.Tensor): n x dx tensor 
+        k (kernel): a KSTKernel/DKSTKernel object
+
+    Returns:
+        torch.tensor: tensor of size n
+    """
+    # TODO extend to len(X.shape) > 2
+    assert X1.shape == X2.shape
+    # rom scem import kernel
+    # assert isinstance(k, kernel.DKSTOnehotKernel)
+    gram_score = torch.einsum('ij, ij->i', S1, S2)
+    K = k.pair_eval(X1, X2)
+    kG1 = k.gradX_pair(X1, X2)
+    kG2 = k.gradX_pair(X2, X1)
+    B = torch.einsum('ij,ij->i', kG1, S2)
+    C = torch.einsum('ij,ij->i', kG2, S1)
+    h = K*gram_score + B + B.T + k.gradXY_sum_pair(X1, X2)
     return h
 
 
@@ -61,6 +88,14 @@ def ksd_ustat(X, score_fn, k, return_variance=False):
         return stat
     variance = first_order_ustat_variance(H)    
     return stat, variance
+
+
+def ksd_incomplete_ustat(X1, X2, score_fn, k):
+    """Computes KSD incomplete U-stat estimate"""
+    S1 = score_fn(X1)
+    S2 = score_fn(X2)
+    H = ksd_incomp_ustat_gram(X1, X2, S1, S2, k)
+    return H.mean()
 
 
 def kcsd_ustat(X, Z, cond_score_fn, k, l, return_variance=False):
