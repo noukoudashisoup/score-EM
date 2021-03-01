@@ -58,7 +58,7 @@ def ksd_incomp_ustat_gram(X1, X2, S1, S2, k):
     kG2 = k.gradX_pair(X2, X1)
     B = torch.einsum('ij,ij->i', kG1, S2)
     C = torch.einsum('ij,ij->i', kG2, S1)
-    h = K*gram_score + B + B.T + k.gradXY_sum_pair(X1, X2)
+    h = K*gram_score + B + C + k.gradXY_sum_pair(X1, X2)
     return h
 
 
