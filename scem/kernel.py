@@ -83,7 +83,7 @@ class KSTKernel(metaclass=ABCMeta):
         dims = list(range(len(X.shape)))
         dims[0] = 1
         dims[1] = 0
-        return self.gradX(Y, X).permute(*dims)
+        return self.gradX(Y, X).transpose*dims)
 
     @abstractmethod
     def gradXY_sum(self, X, Y):
@@ -1008,7 +1008,7 @@ class KSTProduct(KSTKernel):
         k2 = self.k2 
         K1 = k1.eval(X, Y)
         K2 = k2.eval(X, Y)
-        G1 = k1.gra/KdX(X, Y)
+        G1 = k1.gradX(X, Y)
         G2 = k2.gradX(X, Y)
         T1 = torch.einsum('ij,ijk->ijk', K1, G2)
         T2 = torch.einsum('ij,ijk->ijk', K2, G1)
