@@ -49,8 +49,6 @@ class ScaledKSD(KSD):
         return scale**2 * ksdsq
 
 
-<<<<<<< HEAD
-=======
 class IncompleteKSD(_Loss):
     """
 
@@ -71,7 +69,6 @@ class IncompleteKSD(_Loss):
         return ksd_incomplete_ustat(X1, X2, score_fn, k)
 
 
->>>>>>> 205b34ebf2f271fb030deb97c32231f8eddcc2d0
 class KCSD(_Loss):
     """KCSD U-statistics
 
@@ -188,6 +185,47 @@ class DSM(_Loss):
     pass
 
 
+class MMD(_Loss):
+
+    def __init__(self, k):
+        self.k = k
+
+    def _mmdsq_ustat(self, X, Y):
+        n = X.shape[0]
+        m = Y.shape[0]
+        k = self.k
+        Kxx = k.eval(X, X)
+        Kxy = k.eval(X, Y)
+        Kyy = k.eval(Y, Y)
+        Kx_diag = torch.sum(torch.diag(Kxx))
+        Ky_diag = torch.sum(torch.diag(Kyy))
+        mmdsq = (torch.sum(Kxx) - Kx_diag)/(n*(n-1))
+        mmdsq = mmdsq + (torch.sum(Kyy) - Ky_diag)/(m*(m-1))
+        mmdsq = mmdsq + Kxy.mean()
+        return mmdsq
+    
+    def loss(self, X, Y):
+        return self._mmdsq_ustat(X, Y)
+
+
+class ScaledMMD(MMD):
+
+    def __init__(self, k, reg=None, gradient_scale=1.):
+        super(ScaledMMD, self).__init__(k)
+        self.reg = reg if reg is not None else 1e-4
+        self.gradient_scale = gradient_scale
+
+    def loss(self, X, Y):
+        reg = self.reg
+        gsc = self.gradient_scale
+        k = self.k
+        scale = util.rkhs_reg_scale(X, k, reg, gsc)
+        mmdsq = super(ScaledMMD, self).loss(X, Y)
+        return scale**2 * mmdsq
+
+
+
+ 
 
 def main():
     pass
