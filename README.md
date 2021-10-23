@@ -7,4 +7,4 @@ The project repository for EM learning with stein discrepancies.
 * scipy
 
 # Developments 
-Install the package in editable mode:  `pip install -e scem`. 
+Install the package in editable mode:  `pip install -e score-EM`. 

@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 import torch.distributions as dists
-from scem import stein
+from scem import stein, net
 from scem import util
 from abc import ABCMeta, abstractmethod
 from torch.nn.parameter import Parameter
@@ -272,6 +272,7 @@ class CSFactorisedGaussian(ConditionalSampler, nn.Module):
         m, v = self.forward(X)
         return dists.Normal(m, v)
 
+
 class Implicit(ConditionalSampler, nn.Module):
 
     def __init__(self, dx, dz, dh):
@@ -281,10 +282,12 @@ class Implicit(ConditionalSampler, nn.Module):
         self.dh = dh 
         self.layer_1 = nn.Linear(dx+dz, dh)
         self.layer_2 = nn.Linear(dh, dz)
+        self.elu = nn.ELU()
 
     def forward(self, X):
 
         h = self.layer_1(X).relu()
+        # h = self.elu(self.layer_1(X))
         m = self.layer_2(h)
         return m
     
@@ -294,7 +297,7 @@ class Implicit(ConditionalSampler, nn.Module):
         X = torch.stack([X]*n_sample, axis=0)
         X = torch.cat([X, noise], -1)
         return self.forward(X)
-
+    
 
 class CSNoiseTransformerAdapter(CSNoiseTransformer):
     """Construct a CSNoiseTransformer having a given 
@@ -337,6 +340,51 @@ class CSNoiseTransformerAdapter(CSNoiseTransformer):
         noise = self.sample_noise(n_sample, n, seed)
         Z = self.forward(noise, X)
         return Z
+   
+
+class CSCategoricalMixture(CSNoiseTransformer):
+    def __init__(self, din, dh1, dh2, dout, dnoise,
+                 n_classes, n_logits, temperature=1.):
+        super(CSCategoricalMixture, self).__init__()
+        self.din = din
+        self.dout = dout
+        self.dnoise = dnoise
+        self.n_logits = n_logits
+        self.n_classes = n_classes
+        self.feat = net.TwoLayerFC(din+dnoise, dh1, dh2, dout)
+        self.mlinear = net.MultipleLinear(dout, n_classes, n_logits,
+                                          bias=True)
+        self.temperature = temperature
+
+    def forward(self, noise, X):
+        n_sample = noise.shape[0]
+        X_ = torch.stack([X]*n_sample)
+        Xin = torch.cat([X_, noise], axis=-1)
+        return (self.feat(Xin))
+
+    def sample_noise(self, n_sample, n, seed=14):
+        noise = torch.randn(n_sample, n, self.dnoise)
+        return noise
+    
+    def in_out_shapes(self):
+        return ((self.dnoise,), self.dout) 
+
+    def sample(self, n_sample, X, seed=13):
+        n = X.shape[0]
+        noise = self.sample_noise(n_sample, n)
+        out = self.forward(noise, X).relu()
+        logits = self.mlinear(out) / self.temperature
+        if self.training:
+            m = dists.RelaxedOneHotCategorical(
+                self.temperature,
+                logits=logits,
+            )
+            sample = m.rsample()
+            # print(sample)
+            return sample
+        m = dists.OneHotCategorical(logits=logits)
+        sample = m.sample()
+        return sample
 
 
 def main():

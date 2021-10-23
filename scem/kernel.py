@@ -83,7 +83,7 @@ class KSTKernel(metaclass=ABCMeta):
         dims = list(range(len(X.shape)))
         dims[0] = 1
         dims[1] = 0
-        return self.gradX(Y, X).permute(*dims)
+        return self.gradX(Y, X).transpose*dims)
 
     @abstractmethod
     def gradXY_sum(self, X, Y):
@@ -224,6 +224,28 @@ class DKSTOnehotKernel(Kernel):
         G = torch.stack([self.parX(X, Y, j, shift) for j in range(d)])
         return G.permute(1, 2, 0)
 
+    def parX_pair(self, X, Y, dim, shift=-1):
+        """
+        Default: compute the (cyclic) backward difference with respect to
+        the dimension dim of X in k(X, Y) pairwise.
+
+        X: n x d x n_cat
+        Y: n x d x n_cat
+
+        Return a numpy array of size n.
+        """
+
+        X_ = X.clone()
+        perm = util.cyclic_perm_matrix(self.n_cat, shift)
+        X_[:, dim] = X[:, dim] @ perm
+        return (self.pair_eval(X, Y) - self.pair_eval(X_, Y))
+
+    def gradX_pair(self, X, Y, shift=-1):
+        """Compute the gradient (difference) w.r.t. X pairwise"""
+        d = X.shape[1]
+        G = torch.stack([self.parX_pair(X, Y, j, shift) for j in range(d)])
+        return G.permute(1, 0)
+
     def gradXY_sum(self, X, Y, shift=-1):
         """
         Compute the trace term in the kernel function in Yang et al., 2018. 
@@ -231,7 +253,7 @@ class DKSTOnehotKernel(Kernel):
         X: nx x d x n_cat numpy array.
         Y: ny x d x n_cat numpy array. 
 
-        Return a nx x ny numpy array of the derivatives.
+        Return a nx x ny torch tensor of the derivatives.
         """
         nx = X.shape[0]
         d = X.shape[1]
@@ -245,6 +267,30 @@ class DKSTOnehotKernel(Kernel):
             Y_[:, j] = Y[:, j] @ perm
             K += (self.eval(X, Y) + self.eval(X_, Y_)
                   - self.eval(X_, Y) - self.eval(X, Y_))
+        return K
+    
+    def gradXY_sum_pair(self, X, Y, shift=-1):
+        """
+        Compute the trace term in the kernel function in Yang et al., 2018
+        (pairwise).
+
+        X: n x d x n_cat numpy array.
+        Y: n x d x n_cat numpy array. 
+
+        Return a torch tensor of the derivatives, size [n].
+        """
+        nx = X.shape[0]
+        d = X.shape[1]
+        ny = Y.shape[0]
+        K = torch.zeros((nx, ny), dtype=X.dtype)
+        perm = util.cyclic_perm_matrix(self.n_cat, shift)
+        for j in range(d):
+            X_ = X.clone()
+            Y_ = Y.clone()
+            X_[:, j] = X[:, j] @ perm
+            Y_[:, j] = Y[:, j] @ perm
+            K += (self.pair_eval(X, Y) + self.pair_eval(X_, Y_)
+                  - self.pair_eval(X_, Y) - self.pair_eval(X, Y_))
         return K
     
 # end DKSTOnehotKernel
@@ -962,7 +1008,7 @@ class KSTProduct(KSTKernel):
         k2 = self.k2 
         K1 = k1.eval(X, Y)
         K2 = k2.eval(X, Y)
-        G1 = k1.gra/KdX(X, Y)
+        G1 = k1.gradX(X, Y)
         G2 = k2.gradX(X, Y)
         T1 = torch.einsum('ij,ijk->ijk', K1, G2)
         T2 = torch.einsum('ij,ijk->ijk', K2, G1)

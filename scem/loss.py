@@ -1,7 +1,7 @@
 """Module containing loss functions"""
 import torch
 from abc import abstractmethod, ABCMeta
-from scem.stein import ksd_ustat, kcsd_ustat
+from scem.stein import ksd_incomplete_ustat, ksd_ustat, kcsd_ustat
 from scem import util
 
 
@@ -47,6 +47,26 @@ class ScaledKSD(KSD):
         scale = util.rkhs_reg_scale(X, k, reg, gsc)
         ksdsq = super(ScaledKSD, self).loss(X)
         return scale**2 * ksdsq
+
+
+class IncompleteKSD(_Loss):
+    """
+
+    Attributes:
+        k: 
+            an object either of KSTKernel,
+            DKSTKernel, DKSTOnehotKernel
+        score_fn:
+            callable object representing
+    """
+    def __init__(self, k, score_fn):
+        self.k = k
+        self.score_fn = score_fn
+    
+    def loss(self, X1, X2):
+        score_fn = self.score_fn
+        k = self.k
+        return ksd_incomplete_ustat(X1, X2, score_fn, k)
 
 
 class KCSD(_Loss):
@@ -139,9 +159,73 @@ class VNCE:
         return vnce_loss
 
 
-class ELBO:
+class ConditionalKL(_Loss):
+    """averaged KL divergence for training
+    approximate posterior: E_x KL[q(z|x)|| p(z|x)]
+    """
+    def __init__(self, csampler, lebm, n_sample=1):
+        self.csampler = csampler
+        if not hasattr(csampler, 'log_prob'):
+            raise ValueError(('{}: KL requires log density.'
+                              ).format(csampler.__class__))
+        self.lebm = lebm
+    
+    def loss(self, X, Z):
+        """
+        compute the loss
+        """
+        cs = self.csampler
+        lebm = self.lebm
+        log_q = cs.log_prob(X, Z)
+        log_p = lebm(X, Z)
+        return (log_q - log_p).mean()
+
+
+class DSM(_Loss):
     pass
 
+
+class MMD(_Loss):
+
+    def __init__(self, k):
+        self.k = k
+
+    def _mmdsq_ustat(self, X, Y):
+        n = X.shape[0]
+        m = Y.shape[0]
+        k = self.k
+        Kxx = k.eval(X, X)
+        Kxy = k.eval(X, Y)
+        Kyy = k.eval(Y, Y)
+        Kx_diag = torch.sum(torch.diag(Kxx))
+        Ky_diag = torch.sum(torch.diag(Kyy))
+        mmdsq = (torch.sum(Kxx) - Kx_diag)/(n*(n-1))
+        mmdsq = mmdsq + (torch.sum(Kyy) - Ky_diag)/(m*(m-1))
+        mmdsq = mmdsq + Kxy.mean()
+        return mmdsq
+    
+    def loss(self, X, Y):
+        return self._mmdsq_ustat(X, Y)
+
+
+class ScaledMMD(MMD):
+
+    def __init__(self, k, reg=None, gradient_scale=1.):
+        super(ScaledMMD, self).__init__(k)
+        self.reg = reg if reg is not None else 1e-4
+        self.gradient_scale = gradient_scale
+
+    def loss(self, X, Y):
+        reg = self.reg
+        gsc = self.gradient_scale
+        k = self.k
+        scale = util.rkhs_reg_scale(X, k, reg, gsc)
+        mmdsq = super(ScaledMMD, self).loss(X, Y)
+        return scale**2 * mmdsq
+
+
+
+ 
 
 def main():
     pass
