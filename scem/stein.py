@@ -5,6 +5,7 @@ for computing stein discrepancies.
 
 """
 import torch
+import numpy as np
 from scem import util
 from abc import abstractmethod, ABCMeta
 
@@ -34,6 +35,53 @@ def ksd_ustat_gram(X, S, k):
     h = K*gram_score + B + B.T + k.gradXY_sum(X, X)
     return h
 
+def opt_t_ksd_ustat(X, score_fn, k, return_variance):
+    """Returns the gram matrix of 
+    a score-based Stein kernel
+
+    Args:
+        X (torch.Tensor): n x dx tensor
+        S (torch.Tensor): n x dx tensor 
+        k (kernel): a KSTKernel/DKSTKernel object
+
+    Returns:
+        torch.tensor: n x n tensor
+    """
+    # TODO extend to len(X.shape) > 2
+    n = X.shape[0]
+    S = score_fn(X)
+    # n x dy matrix of gradients
+    # n x n
+    gram_score = S @ S.T
+    # n x n
+    K = k.eval(X, X)
+    kG = k.gradX(X, X)
+    B = torch.einsum('ijk,jk->ij', kG, S)
+    
+    Q = K * gram_score
+    L = B + B.T
+    C = k.gradXY_sum(X, X)
+
+
+    Q_u = torch.sum(Q) - torch.sum(torch.diag(Q))
+    L_u = torch.sum(L) - torch.sum(torch.diag(L))
+    C_u = torch.sum(C) - torch.sum(torch.diag(C))
+
+    opt_t = -L_u / (2 * Q_u)
+    opt_t.clamp_(0, float('inf'))
+    opt_ksd = opt_t**2 * Q_u + opt_t * L_u + C_u
+    opt_ksd /= n*(n-1)
+
+    H = opt_t ** 2 * Q + opt_t * L + C
+
+    if not return_variance:
+        return opt_t, opt_ksd
+
+    variance = second_order_ustat_variance_jackknife(H)    
+    #variance = second_order_ustat_variance_vstat(H)    
+
+    return opt_t, opt_ksd, variance
+
 
 def first_order_ustat_variance(H):
     n = H.shape[0]
@@ -50,6 +98,38 @@ def first_order_ustat_variance(H):
     return variance
 
 
+def second_order_ustat_variance_jackknife(H):
+    n = H.shape[0]
+    di = np.diag_indices(n)
+    Ht = H.clone()
+    Ht[di] = 0.
+    ustat = torch.sum(Ht) / (n*(n-1))
+    variance = 0.
+    for i in range(n):
+        idx = torch.arange(n)
+        idx = np.delete(idx, i)
+        idx = torch.cat([torch.arange(i), torch.arange(i+1,n)])
+        H_ = Ht[idx][:, idx]
+        mean = torch.sum(H_) / ((n-1)*(n-2))
+        tmp = (mean-ustat)**2
+        variance = variance + (tmp-variance) / (i+1)
+    variance = (n-1)*variance
+
+    return variance
+
+ 
+
+def second_order_ustat_variance_vstat(H):
+
+    n = H.shape[0]
+    A = torch.sum(torch.sum(H, dim=1)**2) / (n**3)
+    B = torch.sum(H)**2 / (n**4)
+    variance = 4.*(n-2)/(n*(n-1)) * (A - B)
+    # C = np.mean(H**2)
+    # variance += 2./(n*(n-1)) * (C - B)
+
+    return variance
+
 def ksd_ustat(X, score_fn, k, return_variance=False):
     """Computes KSD U-stat estimate"""
     n = X.shape[0]
@@ -59,7 +139,8 @@ def ksd_ustat(X, score_fn, k, return_variance=False):
     stat /= (n*(n-1))
     if not return_variance:
         return stat
-    variance = first_order_ustat_variance(H)    
+    #variance = first_order_ustat_variance(H)    
+    variance = second_order_ustat_variance_jackknife(H)    
     return stat, variance
 
 

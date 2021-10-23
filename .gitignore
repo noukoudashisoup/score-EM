@@ -106,3 +106,6 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+tm-KSD/results/*
+tm-KSD/slurm_output/*
