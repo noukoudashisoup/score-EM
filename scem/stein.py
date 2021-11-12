@@ -171,8 +171,6 @@ def ksd_ustat(X, score_fn, k, return_variance=False):
     return stat, variance
 
 
-<<<<<<< HEAD
-=======
 def ksd_incomplete_ustat(X1, X2, score_fn, k):
     """Computes KSD incomplete U-stat estimate"""
     S1 = score_fn(X1)
@@ -181,7 +179,6 @@ def ksd_incomplete_ustat(X1, X2, score_fn, k):
     return H.mean()
 
 
->>>>>>> 205b34ebf2f271fb030deb97c32231f8eddcc2d0
 def kcsd_ustat(X, Z, cond_score_fn, k, l, return_variance=False):
     """Computes KSCD U-stat estimate"""
     n = X.shape[0]

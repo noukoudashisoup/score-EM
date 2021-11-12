@@ -83,7 +83,7 @@ class KSTKernel(metaclass=ABCMeta):
         dims = list(range(len(X.shape)))
         dims[0] = 1
         dims[1] = 0
-        return self.gradX(Y, X).transpose*dims)
+        return self.gradX(Y, X).transpose(*dims)
 
     @abstractmethod
     def gradXY_sum(self, X, Y):
@@ -763,6 +763,7 @@ class KIMQ(KSTKernel):
         Yi = Y[:, dim]
         # nx x ny
         dim_diff = (Xi.unsqueeze(1) - Yi.unsqueeze(0))
+        assert dim_diff.shape == (X.shape[0], Y.shape[0])
 
         b = self.b
         c = self.c
@@ -793,6 +794,75 @@ class KIMQ(KSTKernel):
         T1 = -4.0*b*(b-1)*D2*(c2D2**(b-2)) / (s2**2)
         T2 = -2.0*b*d*c2D2**(b-1) / s2
         return T1 + T2
+
+
+class KEucNorm(KSTKernel):
+
+    def __init__(self, p=1, c=1, loc=None, scale=1.):
+        self.p = p
+        self.c = c
+        self.loc = loc 
+        self.scale = scale
+
+    def eval(self, X, Y):
+        p = self.p
+        c = self.c 
+        s = self.scale 
+        loc = self.loc
+        if loc is None:
+            loc = torch.zeros_like(X[0])
+        
+        Xnorm = torch.norm((X-loc)/s, 2, dim=-1, keepdim=False)
+        Ynorm = torch.norm((Y-loc)/s, 2, dim=-1, keepdim=False)
+        return torch.outer(c+Xnorm**p, c+Ynorm**p)
+
+    def pair_eval(self, X, Y):
+        p = self.p
+        c = self.c 
+        s = self.scale 
+        loc = self.loc
+        if loc is None:
+            loc = torch.zeros_like(X[0])
+        
+        Xnorm = torch.norm((X-loc)/s, 2, dim=-1, keepdim=False)
+        Ynorm = torch.norm((Y-loc)/s, 2, dim=-1, keepdim=False)
+        return (c+Xnorm**p) * (c+Ynorm**p)
+
+    def parX(self, X, Y, dim):
+        p = self.p
+        c = self.c
+        s = self.scale 
+        loc = self.loc
+        if loc is None:
+            loc = torch.zeros_like(X[0])
+  
+        Xnorm = torch.norm((X-loc)/s, 2, dim=-1, keepdim=False)
+        Ynorm = torch.norm((Y-loc)/s, 2, dim=-1, keepdim=False)
+        return p*torch.outer(Xnorm**(p-2) * (X[:, dim]-loc[dim])/s**2, c + Ynorm**p) 
+        
+
+    def gradX(self, X, Y):
+        d = X.shape[1]
+        G = torch.stack([self.parX(X, Y, j) for j in range(d)])
+        return G.permute(1, 2, 0)
+    
+
+    def gradXY_sum(self, X, Y):
+        p = self.p
+        c = self.c
+        s = self.scale 
+        loc = self.loc
+        if loc is None:
+            loc = torch.zeros_like(X[0])
+
+        Xnorm = torch.norm((X-loc)/s, 2, dim=-1, keepdim=False)
+        Ynorm = torch.norm((Y-loc)/s, 2, dim=-1, keepdim=False)
+
+        s2 = s**2
+        grad_sum = p**2 * torch.outer(Xnorm**(p-2), Ynorm**(p-2))
+        grad_sum = grad_sum * torch.einsum('ij, kl->ik', (X-loc)/s2, (Y-loc)/s2)
+        return grad_sum
+
 
 
 class KHamming(DKSTKernel):
