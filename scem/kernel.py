@@ -4,6 +4,7 @@ A module containing kernel functions.
 
 import torch
 from scem import util
+from math import ceil
 from abc import ABCMeta
 from abc import abstractmethod
 
@@ -724,7 +725,7 @@ class KIMQ(KSTKernel):
         self.b = b
         self.c = c
         self.s2 = (torch.tensor(s2) if not isinstance(s2, torch.Tensor)
-                   else s2.clone())
+                   else s2)
 
     def eval(self, X, Y):
         b = self.b
@@ -794,6 +795,103 @@ class KIMQ(KSTKernel):
         T1 = -4.0*b*(b-1)*D2*(c2D2**(b-2)) / (s2**2)
         T2 = -2.0*b*d*c2D2**(b-1) / s2
         return T1 + T2
+
+
+class KSTRegularizedMQ(KSTKernel):
+    """Class of MultiQuadratic (IMQ) kernels regularized to be positive definite.
+    Have not been tested. Be careful. 
+    """
+
+    def __init__(self, b=0.5, c=1.0, s2=1.0):
+        self.b = b
+        self.c = c
+        self.s2 = (torch.tensor(s2) if not isinstance(s2, torch.Tensor)
+                   else s2)
+
+    def eval(self, X, Y):
+        b = self.b
+        c = self.c
+        s2 = torch.sqrt(self.s2)**2
+        D2 = util.pt_dist2_matrix(X, Y)
+        DX = util.pt_dist2_matrix(X, torch.zeros_like(Y))
+        DY = util.pt_dist2_matrix(torch.zeros_like(X), Y)
+        K = (c ** 2 + D2/s2) ** b
+        K -= (c ** 2 + DX/s2) ** b
+        K -= (c ** 2 + DY/s2) ** b
+        K += c ** (2*b) 
+        K = (-1)**ceil(b) * K + 1
+        return K
+
+    def pair_eval(self, X, Y):
+        assert X.shape[0] == Y.shape[0]
+        b = self.b
+        c = self.c
+        s = torch.sqrt(self.s2)
+
+        K = (c ** 2 + torch.sum(((X - Y)/s) ** 2, 1)) ** b
+        K -= (c ** 2 + torch.sum(((torch.zeros_like(X) - Y)/s) ** 2, 1)) ** b
+        K -= (c ** 2 + torch.sum(((X - torch.zeros_like(Y))/s) ** 2, 1)) ** b
+        K += c ** (2*b) 
+        K = (-1)**ceil(b) * K + 1
+        return K
+
+    def gradX(self, X, Y, shift=-1):
+        d = X.shape[1]
+        G = torch.stack([self.parX(X, Y, j) for j in range(d)])
+        return G.permute(1, 2, 0)
+
+    def parX(self, X, Y, dim):
+        """
+        Compute the gradient with respect to the dimension dim of X in k(X, Y).
+
+        X: nx x d
+        Y: ny x d
+
+        Return a numpy array of size nx x ny.
+        """
+        s2 = torch.sqrt(self.s2)**2
+        D2 = util.pt_dist2_matrix(X, Y)
+        D2_X = util.pt_dist2_matrix(X, torch.zeros_like(Y))
+        # 1d array of length nx
+        Xi = X[:, dim]
+        # 1d array of length ny
+        Yi = Y[:, dim]
+        # nx x ny
+        dim_diff = (Xi.unsqueeze(1) - Yi.unsqueeze(0))
+        assert dim_diff.shape == (X.shape[0], Y.shape[0])
+
+        b = self.b
+        c = self.c
+
+        Gdim = ( 2.0*b*(c**2 + D2/s2)**(b-1) )*dim_diff / s2
+        Gdim = Gdim - ( 2.0*b*(c**2 + D2_X/s2)**(b-1) )*Xi.unsqueeze(1) / s2
+        Gdim = (-1)**ceil(b) * Gdim
+        assert Gdim.shape[0] == X.shape[0]
+        assert Gdim.shape[1] == Y.shape[0]
+        return Gdim
+
+    def gradXY_sum(self, X, Y):
+        """
+        Compute
+        \sum_{i=1}^d \frac{\par^2 k(X, Y)}{\par x_i \par y_i}
+        evaluated at each x_i in X, and y_i in Y.
+
+        X: nx x d numpy array.
+        Y: ny x d numpy array.
+
+        Return a nx x ny numpy array of the derivatives.
+        """
+        s2 = torch.sqrt(self.s2)**2
+        b = self.b
+        c = self.c
+        D2 = util.pt_dist2_matrix(X, Y)
+
+        # d = input dimension
+        d = X.shape[1]
+        c2D2 = c**2 + D2/s2
+        T1 = -4.0*b*(b-1)*D2*(c2D2**(b-2)) / (s2**2)
+        T2 = -2.0*b*d*c2D2**(b-1) / s2
+        return (-1)**ceil(b) * (T1 + T2)
 
 
 class KEucNorm(KSTKernel):
@@ -1049,6 +1147,7 @@ class BKLinear(DifferentiableKernel):
         idx = torch.arange(dx)
         G[:, :, idx, idx] += 1.
         return G
+
 
 class KSTProduct(KSTKernel):
     """KSTKernel representing the product of two kernel
