@@ -109,3 +109,4 @@ ENV/
 
 tm-KSD/results/*
 tm-KSD/slurm_output/*
+tm-KSD/figs/*
