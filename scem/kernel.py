@@ -35,14 +35,14 @@ class Kernel(object, metaclass=ABCMeta):
 
 class DifferentiableKernel(Kernel):
     """Class representing differentiable kernels.
-    All subclasses should have a prefix B.
+    All subclasses should have a prefix B (B stands for Base kernels).
     """
 
-    def pair_gradX(self, X, Y):
+    def gradX_pair(self, X, Y):
         assert X.shape == Y.shape
         return util.gradient(self.pair_eval, 0, [X, Y])
     
-    def pair_gradY(self, X, Y):
+    def gradY_pair(self, X, Y):
         assert X.shape == Y.shape
         return util.gradient(self.pair_eval, 1, [X, Y])
 
@@ -65,10 +65,16 @@ class DifferentiableKernel(Kernel):
         
     @abstractmethod
     def gradXY(self, X, Y):
+        """Returns nabla_x nabla_y k(x, y)|_{x=X[i], Y[j]}"""
+        pass
+
+    @abstractmethod
+    def gradXY_pair(self, X, Y):
+        """Returns nabla_x nabla_y k(x, y)|_{x=X[i], Y[i]}"""
         pass
 
 
-class KSTKernel(metaclass=ABCMeta):
+class KSTKernel(Kernel, metaclass=ABCMeta):
     """
     Interface specifiying methods a kernel has to implement to be used with
     the Kernelized Stein discrepancy.
@@ -79,6 +85,10 @@ class KSTKernel(metaclass=ABCMeta):
     @abstractmethod
     def gradX(self, X, Y):
         pass
+
+    def gradX_pair(self, X, Y):
+        assert X.shape == Y.shape
+        return util.gradient(self.pair_eval, 0, [X, Y])
 
     def gradY(self, X, Y):
         dims = list(range(len(X.shape)))
@@ -98,6 +108,20 @@ class KSTKernel(metaclass=ABCMeta):
         Return a nx x ny numpy array of the derivatives.
         """
         pass
+
+    @abstractmethod
+    def gradXY_sum_pair(self, X, Y):
+        """
+        Compute \sum_{i=1}^d \frac{\par^2 k(x, y)}{\par x \par y}
+        evaluated at each x_i in X, and y_i in Y.
+
+        X: n x d Tensor.
+        Y: n x d Tensor.
+
+        Return a [n, ] Tensor of the derivatives.
+        """
+        pass
+
    
 # end KSTKernel
 
@@ -417,6 +441,7 @@ class KSTFuncCompose(KFuncCompose, KSTKernel):
         G = torch.einsum('nmi,inj->nmj', kG, g_feat_X)
         return G.reshape((nx, ny,)+X[0].shape)
 
+
     def gradXY_sum(self, X, Y):
         assert isinstance(self.f, FuncFeatureMap)
         k = self.k
@@ -449,6 +474,39 @@ class KSTFuncCompose(KFuncCompose, KSTKernel):
             g_feat_Y[i_o] = f.component_grad(Y, i_o).reshape(ny, dy)
 
         G = torch.einsum('ink, nmij, jmk->nm', g_feat_X, kG, g_feat_Y)
+        return G
+
+    def gradXY_sum_pair(self, X, Y):
+        assert isinstance(self.f, FuncFeatureMap)
+        k = self.k
+        f = self.f
+        assert len(f.output_shape()) == 1
+        d_out = f.output_shape()[0]
+        n = X.shape[0]
+        dx = X[0].numel()
+        dy = Y[0].numel()
+        assert dx == dy
+
+        # n x d_out x d_out
+        kG = k.gradXY_pair(f(X), f(Y))
+
+        g_feat_X = torch.empty((d_out, n, dx),
+                               dtype=X.dtype,
+                               device=X.device)
+        for i_o in range(d_out):
+            g_feat_X[i_o] = f.component_grad(X, i_o).reshape(n, dx)
+
+        if Y is X:
+            G = torch.einsum('ink, nij, jnk->n', g_feat_X, kG, g_feat_X)
+            return G
+
+        g_feat_Y = torch.empty((d_out, n, dy),
+                               dtype=Y.dtype,
+                               device=Y.device)
+        for i_o in range(d_out):
+            g_feat_Y[i_o] = f.component_grad(Y, i_o).reshape(n, dy)
+
+        G = torch.einsum('ink, nij, jnk->n', g_feat_X, kG, g_feat_Y)
         return G
 
 
@@ -541,6 +599,20 @@ class BKGauss(DifferentiableKernel):
         # print(K[0, 0]/sigma2 * outer[0, 0] - G[0, 0])
         return G
 
+    def gradXY_pair(self, X, Y):
+        assert X.shape==Y.shape, 'Two inputs must have the same shape'
+        d = X.shape[1]
+        sigma2 = torch.sqrt(self.sigma2)**2
+        diff = X - Y
+        outer = torch.einsum('ij, ik->ijk', diff, diff)
+        outer = -outer
+        idx = torch.arange(d)
+        outer[:, idx, idx] += 1./sigma2
+        K = self.pair_eval(X, Y)
+        G = torch.einsum('i,ijk->ijk', K, outer)/(sigma2**2)
+        return G
+
+
 
 class KGauss(BKGauss, KSTKernel):
     def __init__(self, sigma2):
@@ -585,7 +657,26 @@ class KGauss(BKGauss, KSTKernel):
         sigma2 = torch.sqrt(self.sigma2)**2
         D2 = torch.sum(X**2, 1).view(n1, 1) - 2*torch.matmul(X, Y.T) + torch.sum(Y**2, 1).view(1, n2)
         K = torch.exp(-D2/(2.0*sigma2))
-        G = K/sigma2 *(d - D2/sigma2)
+        G = K/sigma2 * (d - D2/sigma2)
+        return G
+
+    def gradXY_sum_pair(self, X, Y):
+        """
+        Compute \sum_{i=1}^d \frac{\par^2 k(X, Y)}{\par x \par y}
+        evaluated at each x_i in X, and y_j in Y.
+
+        Args:
+            X: nx x d numpy array.
+            Y: ny x d numpy array.
+
+        Return a nx x ny Torch tensor of the derivatives.
+        """
+        assert X.shape == Y.shape
+        d = X.shape[1]
+        sigma2 = torch.sqrt(self.sigma2)**2
+        D2 = torch.sum((X-Y)**2, axis=1)
+        K = torch.exp(-D2/(2.0*sigma2))
+        G = K/sigma2 * (d - D2/sigma2)
         return G
 
 
@@ -711,6 +802,31 @@ class BKIMQ(DifferentiableKernel):
             G[:, :, i, i] += diag
         return G
 
+    def gradXY_pair(self, X, Y):
+        """
+        Compute pair-wise grad_x grad_y k(x, y)
+
+        X: n x d torch.Tensor
+        Y: n x d torch.Tensor
+
+        Return a n x d x d torch tensor of the derivatives.
+        """
+        assert X.shape == Y.shape, 'Two inputs must have the shape'
+        d = X.shape[1]
+        b = self.b
+        c = self.c
+        diff = X - Y
+        outer = torch.einsum('ij, ik->ijk', diff, diff)
+        D2 = torch.sum((X-Y)**2, 1)
+        # d = input dimension
+        c2D2 = c**2 + D2
+
+        G = torch.einsum('i,ijk->ijk', -4.0*b*(b-1)*(c2D2**(b-2)), outer)
+        diag = -2.0*b*c2D2**(b-1)
+        for i in range(d):
+            G[:, i, i] += diag
+        return G
+
 
 class KIMQ(KSTKernel):
     """Class of Inverse MultiQuadratic (IMQ) kernels.
@@ -746,6 +862,13 @@ class KIMQ(KSTKernel):
         d = X.shape[1]
         G = torch.stack([self.parX(X, Y, j) for j in range(d)])
         return G.permute(1, 2, 0)
+
+    def gradX_pair(self, X, Y):
+        b = self.b
+        c = self.c
+        s2 = torch.sqrt(self.s2)**2
+        D2 = torch.sum((X-Y)**2, axis=1)
+        return 2*b/s2*(c**2 + D2/s2)**(b-1)
 
     def parX(self, X, Y, dim):
         """
@@ -788,6 +911,19 @@ class KIMQ(KSTKernel):
         b = self.b
         c = self.c
         D2 = util.pt_dist2_matrix(X, Y)
+
+        # d = input dimension
+        d = X.shape[1]
+        c2D2 = c**2 + D2/s2
+        T1 = -4.0*b*(b-1)*D2*(c2D2**(b-2)) / (s2**2)
+        T2 = -2.0*b*d*c2D2**(b-1) / s2
+        return T1 + T2
+
+    def gradXY_sum_pair(self, X, Y):
+        s2 = torch.sqrt(self.s2)**2
+        b = self.b
+        c = self.c
+        D2 = torch.sum((X-Y)**2, axis=1)
 
         # d = input dimension
         d = X.shape[1]
@@ -1108,6 +1244,15 @@ class KSTSumKernel(KSTKernel):
                          X.dtype, X.device)
         return G
     
+    def gradX_pair(self, X, Y):
+        assert X.shape == Y.shape
+        n, d = X.shape
+
+        G = self._sum_op(X, Y, 'gradX_pair',
+                         [n, d],
+                         X.dtype, X.device)
+        return G
+
     def gradXY_sum(self, X, Y):
         nx, dx = X.shape
         ny, dy = Y.shape
@@ -1118,7 +1263,15 @@ class KSTSumKernel(KSTKernel):
                          X.dtype, X.device)
         return G
 
+    def gradXY_sum_pair(self, X, Y):
+        assert X.shape == Y.shape
+        n, d = X.shape
 
+        G = self._sum_op(X, Y, 'gradXY_sum_pair',
+                         [n, d],
+                         X.dtype, X.device)
+        return G
+ 
 class BKLinear(DifferentiableKernel):
 
     def __init__(self):
@@ -1147,6 +1300,17 @@ class BKLinear(DifferentiableKernel):
         idx = torch.arange(dx)
         G[:, :, idx, idx] += 1.
         return G
+
+    def gradXY_pair(self, X, Y):
+        assert X.shape == Y.shape
+        n, d = X.shape
+        
+        G = torch.zeros([n, d, d], dtype=X.dtype,
+                        device=X.device)
+        idx = torch.arange(d)
+        G[:, idx, idx] += 1.
+        return G
+
 
 
 class KSTProduct(KSTKernel):
@@ -1183,6 +1347,15 @@ class KSTProduct(KSTKernel):
         T2 = torch.einsum('ij,ijk->ijk', K2, G1)
         return T1 + T2
 
+    def gradX_pair(self, X, Y):
+        k1 = self.k1
+        k2 = self.k2 
+        K1 = k1.pair_eval(X, Y)
+        K2 = k2.pair_eval(X, Y)
+        G1 = k1.gradX_pair(X, Y)
+        G2 = k2.gradX_pair(X, Y)
+        return K1 * G2 + K2 * G2
+
     def gradXY_sum(self, X, Y):
         k1 = self.k1
         k2 = self.k2
@@ -1191,6 +1364,16 @@ class KSTProduct(KSTKernel):
         T1 = K1 * k2.gradXY_sum(X, Y) + K2*k1.gradXY_sum(X, Y)
         T2 = torch.einsum('ijk,ijk->ij', k1.gradX(X, Y), k2.gradY(X, Y))
         T2 += torch.einsum('ijk,ijk->ij', k2.gradX(X, Y), k1.gradY(X, Y))
+        return T1 + T2
+
+    def gradXY_sum_pair(self, X, Y):
+        k1 = self.k1
+        k2 = self.k2
+        K1 = k1.pair_eval(X, Y)
+        K2 = k2.pair_eval(X, Y)
+        T1 = K1 * k2.gradXY_sum_pair(X, Y) + K2*k1.gradXY_sum_pair(X, Y)
+        T2 = k1.gradX_pair(X, Y) * k2.gradX_pair(Y, X)
+        T2 += k2.gradX_pair(X, Y) * k1.gradX_pair(Y, X)
         return T1 + T2
 
 

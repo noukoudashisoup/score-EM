@@ -84,7 +84,7 @@ def opt_t_ksd_ustat(X, score_fn, k, return_variance):
 
 def ksd_incomp_ustat_gram(X1, X2, S1, S2, k):
     """Returns the pairwise evaluation of 
-    a score-based Stein kernel
+    a score-based Stein kernel on X1, X2
 
     Args:
         X1 (torch.Tensor): n x dx tensor
