@@ -866,9 +866,11 @@ class KIMQ(KSTKernel):
     def gradX_pair(self, X, Y):
         b = self.b
         c = self.c
+        diff = X - Y
         s2 = torch.sqrt(self.s2)**2
-        D2 = torch.sum((X-Y)**2, axis=1)
-        return 2*b/s2*(c**2 + D2/s2)**(b-1)
+        D2 = torch.sum((diff)**2, axis=1)
+        G = torch.einsum('ij,i->ij', diff/s2, 2.0*b*(c**2 + D2/s2)**(b-1))
+        return G
 
     def parX(self, X, Y, dim):
         """
