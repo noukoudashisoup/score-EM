@@ -1248,24 +1248,24 @@ class KEucNorm(KSTKernel):
         self.c = c
         self.loc = loc 
         self.scale = scale
+    
+    def _load_params(self):
+        p = self.p
+        c = self.c
+        s = self.scale
+        loc = self.loc
+        return p, c, s, loc
 
     def eval(self, X, Y):
-        p = self.p
-        c = self.c 
-        s = self.scale 
-        loc = self.loc
+        p, c, s, loc = self._load_params()
         if loc is None:
             loc = torch.zeros_like(X[0])
-        
         Xnorm = torch.norm((X-loc)/s, 2, dim=-1, keepdim=False)
         Ynorm = torch.norm((Y-loc)/s, 2, dim=-1, keepdim=False)
-        return torch.outer(c+Xnorm**p, c+Ynorm**p)
+        return torch.einsum('i,j->ij', c+Xnorm**p, c+Ynorm**p)
 
     def pair_eval(self, X, Y):
-        p = self.p
-        c = self.c 
-        s = self.scale 
-        loc = self.loc
+        p, c, s, loc = self._load_params()
         if loc is None:
             loc = torch.zeros_like(X[0])
         
@@ -1274,29 +1274,35 @@ class KEucNorm(KSTKernel):
         return (c+Xnorm**p) * (c+Ynorm**p)
 
     def parX(self, X, Y, dim):
-        p = self.p
-        c = self.c
-        s = self.scale 
+        p, c, s, loc = self._load_params()
         loc = self.loc
         if loc is None:
             loc = torch.zeros_like(X[0])
   
         Xnorm = torch.norm((X-loc)/s, 2, dim=-1, keepdim=False)
         Ynorm = torch.norm((Y-loc)/s, 2, dim=-1, keepdim=False)
-        return p*torch.outer(Xnorm**(p-2) * (X[:, dim]-loc[dim])/s**2, c + Ynorm**p) 
-        
+        return p*torch.einsum('i,j->ij',
+                              Xnorm**(p-2) * (X[:, dim]-loc[dim])/s**2,
+                              c + Ynorm**p
+                              )
 
     def gradX(self, X, Y):
         d = X.shape[1]
         G = torch.stack([self.parX(X, Y, j) for j in range(d)])
         return G.permute(1, 2, 0)
-    
+
+    def gradX_pair(self, X, Y):
+        p, c, s, loc = self._load_params()
+        if loc is None:
+            loc = torch.zeros_like(X[0])
+  
+        Xnorm = torch.norm((X-loc)/s, 2, dim=-1, keepdim=False)
+        Ynorm = torch.norm((Y-loc)/s, 2, dim=-1, keepdim=False)
+        return p*torch.einsum(
+            'ij,i->ij', Xnorm**(p-2) * (X-loc[:, None])/s**2, c + Ynorm**p) 
 
     def gradXY_sum(self, X, Y):
-        p = self.p
-        c = self.c
-        s = self.scale 
-        loc = self.loc
+        p, c, s, loc = self._load_params()
         if loc is None:
             loc = torch.zeros_like(X[0])
 
@@ -1304,10 +1310,22 @@ class KEucNorm(KSTKernel):
         Ynorm = torch.norm((Y-loc)/s, 2, dim=-1, keepdim=False)
 
         s2 = s**2
-        grad_sum = p**2 * torch.outer(Xnorm**(p-2), Ynorm**(p-2))
+        grad_sum = p**2 * torch.einsum('i,j->ij', Xnorm**(p-2), Ynorm**(p-2))
         grad_sum = grad_sum * torch.einsum('ij, kl->ik', (X-loc)/s2, (Y-loc)/s2)
         return grad_sum
+    
+    def gradXY_sum_pair(self, X, Y):
+        p, c, s, loc = self._load_params()
+        if loc is None:
+            loc = torch.zeros_like(X[0])
 
+        Xnorm = torch.norm((X-loc)/s, 2, dim=-1, keepdim=False)
+        Ynorm = torch.norm((Y-loc)/s, 2, dim=-1, keepdim=False)
+
+        s2 = s**2
+        grad_sum = p**2 * (Xnorm**(p-2) * Ynorm**(p-2))
+        grad_sum = grad_sum * ( ((X-loc)/s2) * ((Y-loc)/s2) ).sum(axis=1)
+        return grad_sum
 
 
 class KHamming(DKSTKernel):
