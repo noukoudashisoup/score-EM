@@ -156,19 +156,108 @@ def build_lagrange_basis_dict(dim, deg):
             basis_dict[i+1] = return_ith_col(i)
     if deg == 2:
         basis_dict = _second_order_lagrange_basis_dict(dim, deg)
-    return basis_dict  
+    return basis_dict
+
+
+def _second_order_lagrange_basis_grad_dict(dim, deg):
+
+    def inter_mediate_grad(X, j):
+        X_j = X[:, j]
+        X_j_tile = torch.tile(X[:, j, None], (1, dim-1))
+        idx = torch.arange(dim)
+        idx = idx[idx!=j]
+        indicator = torch.zeros_like(X)
+        indicator[:, j] = 1.
+        A = torch.einsum(
+            'ij,i->i', indicator, (X_j_tile - X[:, idx]).prod(axis=1))
+        A += torch.einsum(
+            'ij,i->i', (indicator-1)**(dim-1), X_j)
+        B = torch.einsum('ij,i->ij', indicator, (1. - X[:, idx]).prod(axis=1))
+        return A, B
+    
+    def first_order_func_i(i):
+        def func_i(X):
+            A, B = inter_mediate_grad(X, i)
+            return (A - 2**(dim-1) * B) / (1.-2**(dim-1))
+        return func_i
+
+    def second_order_func_ii(i):
+        def func_ii(X):
+            A, B = inter_mediate_grad(X, i)
+            return (A - B) / (2**dim - 2)
+        return func_ii
+
+    def second_order_func_ij(i, j):
+        def func_ij(X):
+            indicator_i = torch.zeros_like(X)
+            indicator_i[:, i] = 1.
+            indicator_j = torch.zeros_like(X)
+            indicator_j[:, j] = 1.
+            return (indicator_i * X[:, j, None] 
+                    + indicator_j * X[:, i, None])
+        return func_ij
+    
+    def sum_neg_grads(func_dict):
+        def minused(X):
+            evals = torch.zeros_like(X)
+            for fn in func_dict.values():
+                evals -= fn(X)
+            return evals
+        return minused
+
+    basis_grad_dict = {}
+    for i in range(dim):
+        basis_grad_dict[i+1] = first_order_func_i(i)
+
+    triu_idx = torch.triu_indices(dim, dim)
+    len_second_order_terms = len(triu_idx[0])
+    for i in range(len_second_order_terms):
+        i1, i2 = int(triu_idx[0, i]), int(triu_idx[1, i])
+        if i1 == i2:
+            basis_grad_dict[(i1, i1)] = second_order_func_ii(i1)
+        else:
+            basis_grad_dict[(i1, i2)] = second_order_func_ij(i1, i2)
+    basis_grad_dict[0] = sum_neg_grads(copy.deepcopy(basis_grad_dict))
+    return basis_grad_dict
+
+
+def build_lagrange_basis_grad_dict(dim, deg):
+    if deg > 2:
+        raise ValueError('This method does not support higher order polynomials. '
+                         'The value was {}'.format(deg))
+    basis_dict = {}
+    if deg == 0:
+        basis_dict[0] = (lambda X: torch.zeros_like(X))
+    if deg == 1:
+        def return_ith_col(i):
+            def f(X):
+                G = torch.zeros_like(X)
+                G[:, i] = 1.
+                return G
+            return f
+
+        basis_dict[0] = lambda X: (1. - dim) * torch.ones_like(X)
+        for i in range(dim):
+            basis_dict[i+1] = return_ith_col(i)
+    if deg == 2:
+        basis_dict = _second_order_lagrange_basis_grad_dict(dim, deg)
+    return basis_dict
+
 
 def main():
     d = 5
     deg = 2
     unisolv = poly_unisolvent_points(d, deg)
     basis_dict = build_lagrange_basis_dict(d, deg)
+    grad_dict = build_lagrange_basis_grad_dict(d, deg)
     arange_d = torch.arange(d)
     for key, point in unisolv.items():
-        for fn_key, fn in basis_dict.items():
-            evals = fn(point).item()
-            if (evals != 0):
-                print(key == fn_key)
+        # for fn_key, fn in basis_dict.items():
+        for fn_key, fn in grad_dict.items():
+            evals = fn(point)
+            print(point, evals)
+            #if (evals != 0):
+            #    print(key == fn_key)
     # evals = (lagrange_basis(X, deg=2))
     # n = int(comb(d+deg, d))
     # arange_n = torch.arange(n)

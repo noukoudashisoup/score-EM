@@ -3,11 +3,11 @@ A module containing kernel functions.
 """
 
 import torch
-from scem import util
+from scem import util, polynom
 from math import ceil
 from abc import ABCMeta
 from abc import abstractmethod
-
+from scem.cpdkernel import KSTKernelCPD
 
 class Kernel(object, metaclass=ABCMeta):
     """Abstract class for kernels. Inputs to all methods are numpy arrays."""
@@ -858,7 +858,7 @@ class KIMQ(KSTKernel):
         s = torch.sqrt(self.s2)
         return (c ** 2 + torch.sum(((X - Y)/s) ** 2, 1)) ** b
 
-    def gradX(self, X, Y, shift=-1):
+    def gradX(self, X, Y):
         d = X.shape[1]
         G = torch.stack([self.parX(X, Y, j) for j in range(d)])
         return G.permute(1, 2, 0)
@@ -945,7 +945,7 @@ class KSTRegularizedMQ(KSTKernel):
         self.c = c
         self.s2 = (torch.tensor(s2) if not isinstance(s2, torch.Tensor)
                    else s2)
-
+    
     def eval(self, X, Y):
         b = self.b
         c = self.c
@@ -1008,6 +1008,15 @@ class KSTRegularizedMQ(KSTKernel):
         assert Gdim.shape[1] == Y.shape[0]
         return Gdim
 
+    def gradX_pair(self, X, Y):
+        b = self.b
+        c = self.c
+        diff = X - Y
+        s2 = torch.sqrt(self.s2)**2
+        D2 = torch.sum((diff)**2, axis=1)
+        G = torch.einsum('ij,i->ij', diff/s2, 2.0*b*(c**2 + D2/s2)**(b-1))
+        return (-1)**ceil(b)*G
+
     def gradXY_sum(self, X, Y):
         """
         Compute
@@ -1030,6 +1039,206 @@ class KSTRegularizedMQ(KSTKernel):
         T1 = -4.0*b*(b-1)*D2*(c2D2**(b-2)) / (s2**2)
         T2 = -2.0*b*d*c2D2**(b-1) / s2
         return (-1)**ceil(b) * (T1 + T2)
+    
+    def gradXY_sum_pair(self, X, Y):
+        s2 = torch.sqrt(self.s2)**2
+        b = self.b
+        c = self.c
+        D2 = torch.sum((X-Y)**2, axis=1)
+
+        # d = input dimension
+        d = X.shape[1]
+        c2D2 = c**2 + D2/s2
+        T1 = -4.0*b*(b-1)*D2*(c2D2**(b-2)) / (s2**2)
+        T2 = -2.0*b*d*c2D2**(b-1) / s2
+        return (-1)**ceil(b) * (T1 + T2)
+
+
+class KSTRegularizedCPDKernel(KSTKernel):
+
+    """Class representing CPD kernels regularzed with a Lagrange basis.
+    
+    Args: 
+        cpd_kernel: an instance of KSTKernelCPD to regularize
+        dim: input dimension
+    """
+    
+    def __init__(self, cpd_kernel, dim):
+        self.cpd_kernel = cpd_kernel
+        self.dim = dim
+        deg = cpd_kernel.order() - 1
+        self.deg = deg
+        self.unisolvents = polynom.poly_unisolvent_points(dim, deg)
+        self.lbasis = polynom.build_lagrange_basis_dict(dim, deg)
+        self.lbasis_grads = polynom.build_lagrange_basis_grad_dict(dim, deg)
+    
+    def _load_params(self):
+        k = self.cpd_kernel
+        lbasis = self.lbasis
+        unisolvs = self.unisolvents
+        return k, lbasis, unisolvs
+
+    def eval(self, X, Y):
+        k, lbasis, unisolvs = self._load_params()
+        basiseval_cache_x = {}
+        basiseval_cache_y = {}
+
+        K = k.eval(X, Y)
+        for key, basis in lbasis.items():
+            point = unisolvs[key]
+            lbX = basis(X)
+            lbY = basis(Y)
+            K -= torch.einsum(
+                'i,j->ij', lbX, k.eval(point, Y).squeeze())
+            K -= torch.einsum(
+                'i,j->ij', k.eval(X, point).squeeze(), lbY)
+            K += torch.einsum('i,j->ij', lbX, lbY)
+            basiseval_cache_x[key] = lbX
+            basiseval_cache_y[key] = lbY
+         
+        for key_x, px in unisolvs.items():
+            bx = basiseval_cache_x[key_x]
+            for key_y, py in unisolvs.items():
+                by = basiseval_cache_y[key_y]
+                w = k.eval(px, py).squeeze() 
+                K += w * torch.einsum('i,j->ij', bx, by)
+
+        return K
+
+    def pair_eval(self, X, Y):
+        k, lbasis, unisolvs = self._load_params()
+        basiseval_cache_x = {}
+        basiseval_cache_y = {}
+
+        K = k.pair_eval(X, Y)
+        for key, basis in lbasis.items():
+            point = unisolvs[key]
+            lbX = basis(X)
+            lbY = basis(Y)
+            K -= k.eval(point, Y).squeeze(0) * lbX
+            K -= k.eval(point, X).squeeze(0) * lbY
+            K += lbX * lbY
+            basiseval_cache_x[key] = lbX
+            basiseval_cache_y[key] = lbY
+         
+        for key_x, px in unisolvs.items():
+            bx = basiseval_cache_x[key_x]
+            for key_y, py in unisolvs.items():
+                by = basiseval_cache_y[key_y]
+                w = k.eval(px, py).squeeze() 
+                K += w * (bx * by)
+        return K
+
+    def gradX(self, X, Y):
+        k, lbasis, unisolvs = self._load_params()
+        lbasis_grads = self.lbasis_grads
+        assert isinstance(k, KSTKernelCPD), 'Was {}'.format(type(k))
+        G = k.gradX(X, Y)
+
+        grad_cache_x = {}
+        basis_cache_y = {}
+        for key, basis in lbasis.items():
+            point = unisolvs[key]
+            bx_grad = lbasis_grads[key](X)
+            G -= torch.einsum(
+                'ij, k->ikj', bx_grad, k.eval(point, Y).squeeze())
+            by = basis(Y)
+            G -= torch.einsum(
+                'ij, k->ikj', k.gradX(X, point).squeeze(), by)
+            G += torch.einsum('ij,k->ikj', bx_grad, by)
+            grad_cache_x[key] = bx_grad
+            basis_cache_y[key] = by
+
+        for key_x, px in unisolvs.items():
+            bx_grad = grad_cache_x[key_x]
+            for key_y, py in unisolvs.items():
+                by = basis_cache_y[key_y]
+                w = k.eval(px, py).squeeze()
+                G += w * torch.einsum('ij,k->ikj', bx_grad, by)
+        return G
+
+    def gradX_pair(self, X, Y):
+        k, lbasis, unisolvs = self._load_params()
+        lbasis_grads = self.lbasis_grads
+        assert isinstance(k, KSTKernelCPD)
+        G = k.gradX_pair(X, Y)
+        grad_cache_x = {}
+        basis_cache_y = {}
+        for key, basis in lbasis.items():
+            point = unisolvs[key]
+            bx_grad = lbasis_grads[key](X)
+            G -= torch.einsum(
+                'ij, i->ij', bx_grad, k.eval(point, Y).squeeze())
+            by = basis(Y)
+            G -= torch.einsum(
+                'ij,i->i', k.gradX(X, point).squeeze(), by)
+            G += torch.einsum('ij,i->i', bx_grad, by)
+            grad_cache_x[key] = bx_grad
+            basis_cache_y[key] = by
+
+        for key_x, px in unisolvs.items():
+            bx_grad = grad_cache_x[key_x]
+            for key_y, py in unisolvs.items():
+                by = basis_cache_y[key_y]
+                w = k.eval(px, py).squeeze()
+                G += w * torch.einsum('ij,i->ij', bx_grad, by)
+        return G
+
+    def gradXY_sum(self, X, Y):
+        k, lbasis, unisolvs = self._load_params()
+        lbasis_grads = self.lbasis_grads
+        assert isinstance(k, KSTKernelCPD)
+        G = k.gradXY_sum(X, Y)
+
+        grad_cache_x = {}
+        grad_cache_y = {}
+        for key, basis in lbasis.items():
+            point = unisolvs[key]
+            bx_grad = lbasis_grads[key](X)
+            by_grad = lbasis_grads[key](Y)
+            grad_cache_x[key] = bx_grad
+            grad_cache_y[key] = by_grad
+            G -= torch.einsum(
+                'ik, jk->ij', bx_grad, k.gradY(point, Y).squeeze())
+            G -= torch.einsum(
+                'ik,jk->ij', k.gradX(X, point).squeeze(), by_grad)
+            G += torch.einsum('ik,jk->ij', bx_grad, by_grad)
+
+        for key_x, px in unisolvs.items():
+            bx_grad = grad_cache_x[key_x]
+            for key_y, py in unisolvs.items():
+                by_grad = grad_cache_y[key_y]
+                w = k.eval(px, py).squeeze()
+                G += w * torch.einsum('ik,jk->ij', bx_grad, by_grad)
+        return G
+
+    def gradXY_sum_pair(self, X, Y):
+        k, lbasis, unisolvs = self._load_params()
+        lbasis_grads = self.lbasis_grads
+        assert isinstance(k, KSTKernelCPD)
+        G = k.gradXY_sum_pair(X, Y)
+
+        grad_cache_x = {}
+        grad_cache_y = {}
+        for key, basis in lbasis.items():
+            point = unisolvs[key]
+            bx_grad = lbasis_grads[key](X)
+            by_grad = lbasis_grads[key](Y)
+            grad_cache_x[key] = bx_grad
+            grad_cache_y[key] = by_grad
+            G -= torch.einsum(
+                'ik,ik->i', bx_grad, k.gradY(point, Y).squeeze())
+            G -= torch.einsum(
+                'ik,ik->i', k.gradX(X, point).squeeze(), by_grad)
+            G += torch.einsum('ik,ik->i', bx_grad, by_grad)
+
+        for key_x, px in unisolvs.items():
+            bx_grad = grad_cache_x[key_x]
+            for key_y, py in unisolvs.items():
+                by_grad = grad_cache_y[key_y]
+                w = k.eval(px, py).squeeze()
+                G += w * torch.einsum('ik,ik->i', bx_grad, by_grad)
+        return G
 
 
 class KEucNorm(KSTKernel):
@@ -1384,3 +1593,26 @@ kernel_derivatives = {
     BKIMQ: lambda k: -2*k.b*(k.c**2)**(k.b-1),
     BKLinear: lambda k: 1.,
 }
+
+def main():
+    from scem.cpdkernel import MultiQuadratic
+    n = 10
+    d = 3
+    X = torch.randn(n, d)
+    Y = torch.randn(n, d)
+    mq = MultiQuadratic()
+    kmq = KSTRegularizedCPDKernel(mq, d)
+    kmq_ = KSTRegularizedMQ()
+    K = kmq.eval(X, X)
+    K_ = kmq_.eval(X, X)
+    print(torch.mean(torch.abs(K-K_)))
+    G = kmq.gradX(X, Y)
+    G_ = kmq_.gradX(X, Y)
+    print(torch.mean((G-G_)**2))
+    G = kmq.gradXY_sum(X, Y)
+    G_ = kmq_.gradXY_sum(X, Y)
+    print(torch.mean((G-G_)**2))
+
+
+if __name__ == '__main__':
+    main()
