@@ -146,11 +146,11 @@ def build_lagrange_basis_dict(dim, deg):
                          'The value was {}'.format(deg))
     basis_dict = {}
     if deg == 0:
-        basis_dict[0] = (lambda X: 
+        basis_dict[0] = (lambda X:
             torch.ones((X.shape[0],), device=X.device, dtype=X.dtype))
     if deg == 1:
         def return_ith_col(i):
-           return lambda X: X[:, i]
+            return lambda X: X[:, i]
         basis_dict[0] = lambda X: 1. - X.sum(axis=1)
         for i in range(dim):
             basis_dict[i+1] = return_ith_col(i)
@@ -225,18 +225,19 @@ def build_lagrange_basis_grad_dict(dim, deg):
     if deg > 2:
         raise ValueError('This method does not support higher order polynomials. '
                          'The value was {}'.format(deg))
+
+    def return_ith_col(i):
+        def f(X):
+            G = torch.zeros_like(X)
+            G[:, i] = 1.
+            return G
+        return f
+
     basis_dict = {}
     if deg == 0:
         basis_dict[0] = (lambda X: torch.zeros_like(X))
     if deg == 1:
-        def return_ith_col(i):
-            def f(X):
-                G = torch.zeros_like(X)
-                G[:, i] = 1.
-                return G
-            return f
-
-        basis_dict[0] = lambda X: (1. - dim) * torch.ones_like(X)
+        basis_dict[0] = lambda X: -torch.ones_like(X)
         for i in range(dim):
             basis_dict[i+1] = return_ith_col(i)
     if deg == 2:
@@ -246,7 +247,7 @@ def build_lagrange_basis_grad_dict(dim, deg):
 
 def main():
     d = 5
-    deg = 2
+    deg = 1
     unisolv = poly_unisolvent_points(d, deg)
     basis_dict = build_lagrange_basis_dict(d, deg)
     grad_dict = build_lagrange_basis_grad_dict(d, deg)
