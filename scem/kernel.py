@@ -1112,8 +1112,7 @@ class KSTRegularizedCPDKernel(KSTKernel):
             bx = basiseval_cache_x[key_x]
             for j, (key_y, py) in enumerate(unisolvs.items()):
                 by = basiseval_cache_y[key_y]
-                # w = k.eval(px, py).squeeze() 
-                w = W[i, j]
+                w = k.eval(px, py).squeeze() 
                 K += w * torch.einsum('i,j->ij', bx, by)
 
         return K
@@ -1188,8 +1187,8 @@ class KSTRegularizedCPDKernel(KSTKernel):
                 'ij, i->ij', bx_grad, k.eval(point, Y).squeeze(0))
             by = basis(Y)
             G -= torch.einsum(
-                'ij,i->i', k.gradX(X, point).squeeze(1), by)
-            G += torch.einsum('ij,i->i', bx_grad, by)
+                'ij,i->ij', k.gradX(X, point).squeeze(1), by)
+            G += torch.einsum('ij,i->ij', bx_grad, by)
             grad_cache_x[key] = bx_grad
             basis_cache_y[key] = by
 
@@ -1261,6 +1260,194 @@ class KSTRegularizedCPDKernel(KSTKernel):
                 G += w * torch.einsum('ik,ik->i', bx_grad, by_grad)
         return G
 
+
+class KSTFastRegularizedCPDKernel(KSTKernel):
+
+    """Class representing CPD kernels regularzed with a Lagrange basis.
+    
+    Args: 
+        cpd_kernel: an instance of KSTKernelCPD to regularize
+        dim: input dimension
+    """
+    
+    def __init__(self, cpd_kernel, dim):
+        self.cpd_kernel = cpd_kernel
+        self.dim = dim
+        deg = cpd_kernel.order() - 1
+        self.deg = deg
+        if deg >= 2:
+            raise ValueError('This class only accepts kernels'
+                             'of order up to 1.'
+                             'The value was {}'.format(deg))
+        self.unisolvents = self._generate_unisolvent_set()
+        self.gram_unisolvs = self._gram_on_unisolvents()
+    
+    def _generate_unisolvent_set(self):
+        d = self.dim
+        if self.deg == 0:
+            U = torch.zeros((1, d))
+        else:
+            U = torch.zeros((d+1, d))
+            U[1:] += torch.eye(d)
+        return U
+    
+    def _gram_on_unisolvents(self):
+        k = self.cpd_kernel
+        U = self.unisolvents
+        return k.eval(U, U)
+
+    def eval(self, X, Y):
+        k = self.cpd_kernel
+        d = self.dim
+
+        K = k.eval(X, Y)
+        W = self.gram_unisolvs
+        if self.deg == 0:
+            K -= k.eval(torch.zeros_like(X), Y)
+            K -= k.eval(X, torch.zeros_like(Y))
+            K += 1.
+            K += W.squeeze()
+        else:
+            BX = torch.cat([1. - X.sum(axis=1, keepdim=True), X], dim=1)
+            BY = torch.cat([1. - Y.sum(axis=1, keepdim=True), Y], dim=1)
+            U = torch.zeros((d+1, d), dtype=X.dtype, device=X.device)
+            U[1:] += torch.eye(self.dim)
+            K -= BX @ k.eval(U, Y)
+            K -= k.eval(X, U) @ BY.T
+            K += BX @ BY.T
+            K += BX @ (W @ BY.T)
+        return K
+
+    def pair_eval(self, X, Y):
+        k = self.cpd_kernel
+        assert isinstance(k, KSTKernelCPD)
+
+        K = k.pair_eval(X, Y)
+        W = self.gram_unisolvs
+        if self.deg == 0:
+            K -= k.pair_eval(torch.zeros_like(X), Y)
+            K -= k.pair_eval(X, torch.zeros_like(Y))
+            K += 1.
+            K += W.squeeze()
+        else:
+            BX = torch.cat([1. - X.sum(axis=1, keepdim=True), X], dim=1)
+            BY = torch.cat([1. - Y.sum(axis=1, keepdim=True), Y], dim=1)
+            U = self.unisolvents
+            K -= (BX * k.eval(U, Y).T).sum(axis=1)
+            K -= (k.eval(X, U) * BY).sum(axis=1)
+            K += torch.sum(BX * BY, axis=1)
+            K += torch.einsum('ij, jk, ik->i', BX, W, BY)
+        return K
+
+    def gradX(self, X, Y):
+        k = self.cpd_kernel
+        nx, d = X.shape
+        assert isinstance(k, KSTKernelCPD), 'Was {}'.format(type(k))
+
+        G = k.gradX(X, Y)
+        if self.deg == 0:
+            U = torch.zeros_like(Y)
+            G -= k.gradX(X, U)
+            return G
+
+        U = self.unisolvents
+        oneX = torch.ones_like(X)
+        G -= torch.einsum('ij,k-> ikj', -oneX,
+                          k.eval(U[None, 0], Y).squeeze(0))
+        G -= (k.eval(U[1:], Y).T).repeat(nx, 1, 1)
+        BY = torch.cat([1. - Y.sum(axis=1, keepdim=True), Y], dim=1)
+        G -= torch.einsum('ijk,lj->ilk', k.gradX(X, U), BY)
+        # fourth term
+        G += torch.einsum('ij,k->ikj', -oneX, BY[:, 0])
+        G += BY[:, 1:].repeat(nx, 1, 1)
+        # third term
+        W = self.gram_unisolvs
+        WBY = W @ BY.T
+        G += torch.einsum('ij,k->ikj', -oneX, WBY[0])
+        G += WBY[1:].T.repeat(nx, 1, 1)
+        return G
+
+    def gradX_pair(self, X, Y):
+        k = self.cpd_kernel
+        nx, d = X.shape
+        assert isinstance(k, KSTKernelCPD), 'Was {}'.format(type(k))
+
+        G = k.gradX_pair(X, Y)
+        if self.deg == 0:
+            U = torch.zeros_like(Y)
+            G -= k.gradX_pair(X, U)
+            return G
+
+        U = self.unisolvents
+        oneX = torch.ones_like(X)
+        G -= -oneX * k.eval(U[None, 0], Y).reshape(nx, 1)
+        G -= (k.eval(U[1:], Y).T)
+        BY = torch.cat([1. - Y.sum(axis=1, keepdim=True), Y], dim=1)
+        G -= torch.einsum('ijk,ij->ik', k.gradX(X, U), BY)
+        # fourth term
+        G += torch.einsum('ij,i->ij', -oneX, BY[:, 0])
+        G += BY[:, 1:]
+        # third term
+        W = self.gram_unisolvs
+        WBY = W @ BY.T
+        G += torch.einsum('ij,i->ij', -oneX, WBY[0])
+        G += WBY[1:].T
+        return G
+
+
+    def gradXY_sum(self, X, Y):
+        k = self.cpd_kernel
+        assert isinstance(k, KSTKernelCPD)
+        assert X.shape[1] == Y.shape[1]
+        _, d = X.shape
+        G = k.gradXY_sum(X, Y)
+
+        if self.deg == 0:
+            return G
+        U = self.unisolvents
+        ran_d = torch.arange(d)
+        oneX = torch.ones_like(X)
+        oneY = torch.ones_like(Y)
+        gX = k.gradX(X, U)
+        G += gX[:, 0, :] @ oneY.T
+        G -= gX[:, ran_d+1, ran_d].sum(axis=-1, keepdim=True)
+        gY = k.gradX(Y, U)
+        G += oneX @ gY[:, 0, :].T
+        G -= gY[:, ran_d+1, ran_d].sum(dim=-1).unsqueeze(0)
+        # fifth term
+        G += 2 * d
+        # fourth term
+        W = self.gram_unisolvs
+        G += (d*W[0, 0] - 2.*W[0, 1:].sum() 
+              + W[(ran_d+1), (ran_d+1)].sum())
+        return G
+
+    def gradXY_sum_pair(self, X, Y):
+        k = self.cpd_kernel
+        assert isinstance(k, KSTKernelCPD)
+        assert X.shape[1] == Y.shape[1]
+        _, d = X.shape
+        G = k.gradXY_sum_pair(X, Y)
+
+        if self.deg == 0:
+            return G
+        U = self.unisolvents
+        ran_d = torch.arange(d)
+        oneX = torch.ones_like(X)
+        oneY = torch.ones_like(Y)
+        gX = k.gradX(X, U)
+        G += torch.sum(gX[:, 0, :] * oneY, axis=-1)
+        G -= gX[:, ran_d+1, ran_d].sum(axis=-1)
+        gY = k.gradX(Y, U)
+        G += torch.sum(oneX * gY[:, 0, :], axis=-1)
+        G -= gY[:, ran_d+1, ran_d].sum(dim=-1)
+        # fifth term
+        G += 2 * d
+        # fourth term
+        W = self.gram_unisolvs
+        G += (d*W[0, 0] - 2.*W[0, 1:].sum() 
+              + W[(ran_d+1), (ran_d+1)].sum())
+        return G
 
 class KEucNorm(KSTKernel):
 
@@ -1537,7 +1724,7 @@ class BKLinear(DifferentiableKernel):
         nx, dx = X.shape
         ny, dy = Y.shape
         assert dx == dy
-        
+
         return torch.stack([Y for _ in range(nx)])
     
     def gradXY(self, X, Y):
@@ -1635,21 +1822,24 @@ kernel_derivatives = {
 
 def main():
     from scem.cpdkernel import MultiQuadratic
-    n = 100
+    n = 10
     d = 40
     X = torch.randn(n, d)
     Y = torch.randn(n, d)
-    mq = MultiQuadratic()
+    mq = MultiQuadratic(b=1.1)
     kmq = KSTRegularizedCPDKernel(mq, d)
+    kmq_fast = KSTFastRegularizedCPDKernel(mq, d)
     kmq_ = KSTRegularizedMQ()
-    K = kmq.eval(X, X)
+    K = kmq.pair_eval(X, Y)
+    Kf = kmq_fast.pair_eval(X, Y)
     K_ = kmq_.eval(X, X)
-    print(torch.mean(torch.abs(K-K_)))
-    G = kmq.gradX(X, Y)
-    G_ = kmq_.gradX(X, Y)
+    # print((torch.abs(K-Kf)))
+    print(torch.mean(torch.abs(K-Kf)))
+    G = kmq.gradX_pair(X, Y)
+    G_ = kmq_fast.gradX_pair(X, Y)
     print(torch.mean((G-G_)**2))
-    G = kmq.gradXY_sum(X, Y)
-    G_ = kmq_.gradXY_sum(X, Y)
+    G = kmq.gradXY_sum_pair(X, Y)
+    G_ = kmq_fast.gradXY_sum_pair(X, Y)
     print(torch.mean((G-G_)**2))
 
 
