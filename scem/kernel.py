@@ -1307,15 +1307,15 @@ class KSTFastRegularizedCPDKernel(KSTKernel):
             K -= k.eval(X, torch.zeros_like(Y))
             K += 1.
             K += W.squeeze()
-        else:
-            BX = torch.cat([1. - X.sum(axis=1, keepdim=True), X], dim=1)
-            BY = torch.cat([1. - Y.sum(axis=1, keepdim=True), Y], dim=1)
-            U = torch.zeros((d+1, d), dtype=X.dtype, device=X.device)
-            U[1:] += torch.eye(self.dim)
-            K -= BX @ k.eval(U, Y)
-            K -= k.eval(X, U) @ BY.T
-            K += BX @ BY.T
-            K += BX @ (W @ BY.T)
+            return K
+
+        BX = torch.cat([1. - X.sum(axis=1, keepdim=True), X], dim=1)
+        BY = torch.cat([1. - Y.sum(axis=1, keepdim=True), Y], dim=1)
+        U = self.unisolvents
+        K -= BX @ k.eval(U, Y)
+        K -= k.eval(X, U) @ BY.T
+        K += BX @ BY.T
+        K += BX @ (W @ BY.T)
         return K
 
     def pair_eval(self, X, Y):
@@ -1504,10 +1504,10 @@ class KEucNorm(KSTKernel):
         if loc is None:
             loc = torch.zeros_like(X[0])
   
-        Xnorm = torch.norm((X-loc)/s, 2, dim=-1, keepdim=False)
+        Xnorm = torch.norm((X-loc)/s, 2, dim=-1, keepdim=True)
         Ynorm = torch.norm((Y-loc)/s, 2, dim=-1, keepdim=False)
         return p*torch.einsum(
-            'ij,i->ij', Xnorm**(p-2) * (X-loc[:, None])/s**2, c + Ynorm**p) 
+            'ij,i->ij', Xnorm**(p-2) * (X-loc)/s**2, c + Ynorm**p) 
 
     def gradXY_sum(self, X, Y):
         p, c, s, loc = self._load_params()
@@ -1791,7 +1791,7 @@ class KSTProduct(KSTKernel):
         K2 = k2.pair_eval(X, Y)
         G1 = k1.gradX_pair(X, Y)
         G2 = k2.gradX_pair(X, Y)
-        return K1 * G2 + K2 * G2
+        return K1[:, None] * G2 + K2[:, None] * G2
 
     def gradXY_sum(self, X, Y):
         k1 = self.k1
@@ -1809,8 +1809,8 @@ class KSTProduct(KSTKernel):
         K1 = k1.pair_eval(X, Y)
         K2 = k2.pair_eval(X, Y)
         T1 = K1 * k2.gradXY_sum_pair(X, Y) + K2*k1.gradXY_sum_pair(X, Y)
-        T2 = k1.gradX_pair(X, Y) * k2.gradX_pair(Y, X)
-        T2 += k2.gradX_pair(X, Y) * k1.gradX_pair(Y, X)
+        T2 = torch.sum(k1.gradX_pair(X, Y) * k2.gradX_pair(Y, X), axis=-1)
+        T2 += torch.sum(k2.gradX_pair(X, Y) * k1.gradX_pair(Y, X), axis=-1)
         return T1 + T2
 
 
@@ -1830,6 +1830,7 @@ def main():
     kmq = KSTRegularizedCPDKernel(mq, d)
     kmq_fast = KSTFastRegularizedCPDKernel(mq, d)
     kmq_ = KSTRegularizedMQ()
+    keuc = KEucNorm()
     K = kmq.pair_eval(X, Y)
     Kf = kmq_fast.pair_eval(X, Y)
     K_ = kmq_.eval(X, X)
