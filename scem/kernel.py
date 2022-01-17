@@ -1015,9 +1015,15 @@ class KSTRegularizedMQ(KSTKernel):
         diff = X - Y
         s2 = torch.sqrt(self.s2)**2
         D2 = torch.sum((diff)**2, axis=1)
+        D2X = torch.sum((X)**2, axis=1)
         # G = torch.einsum('ij,i->ij', diff/s2, 2.0*b*(c**2 + D2/s2)**(b-1))
         G = diff/s2 * (2.0*b*(c**2 + D2/s2)**(b-1))[:, None]
-        return (-1)**ceil(b)*G
+        G -= X/s2 * (2.0*b*(c**2 + D2X/s2)**(b-1))[:, None]
+        G = (-1)**ceil(b) * G
+        return G
+
+
+        return (-1)**ceil(b) * G
 
     def gradXY_sum(self, X, Y):
         """
@@ -1819,31 +1825,36 @@ kernel_derivatives = {
 }
 
 def main():
-    from scem.cpdkernel import MultiQuadratic
+    from scem.cpdkernel import CKSTPrecondionedMQ
     n = 10
-    d = 40
+    d = 3
     X = torch.randn(n, d)
     Y = torch.randn(n, d)
-    mq = MultiQuadratic(b=1.1)
+    mq = CKSTPrecondionedMQ(b=0.5, P=torch.eye(d))
     kmq = KSTRegularizedCPDKernel(mq, d)
     kmq_fast = KSTFastRegularizedCPDKernel(mq, d)
-    kmq_ = KSTRegularizedMQ()
-    keuc = KEucNorm()
+    kmq_ = KSTRegularizedMQ(b=0.5)
+    kmq = kmq_
     K = kmq.pair_eval(X, Y)
     Kf = kmq_fast.pair_eval(X, Y)
     K_ = kmq_.eval(X, X)
     # print((torch.abs(K-Kf)))
     print(torch.mean(torch.abs(K-Kf)))
+
     G = kmq.gradX(X, Y)
     G_ = kmq_fast.gradX(X, Y)
     print(torch.mean((G-G_)**2))
-
     G = kmq.gradX_pair(X, Y)
     G_ = kmq_fast.gradX_pair(X, Y)
+    print('aaa', torch.mean((G-G_)**2))
+    
+    G = kmq.gradXY_sum(X, Y)
+    G_ = kmq_fast.gradXY_sum(X, Y)
     print(torch.mean((G-G_)**2))
     G = kmq.gradXY_sum_pair(X, Y)
     G_ = kmq_fast.gradXY_sum_pair(X, Y)
     print(torch.mean((G-G_)**2))
+
 
 
 if __name__ == '__main__':

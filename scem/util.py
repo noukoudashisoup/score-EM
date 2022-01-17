@@ -234,3 +234,11 @@ def sample_incomplete_ustat_batch(n, batch_size):
     idx1 = torch.cat(idx1)[:batch_size]
     idx2 = torch.cat(idx2)[:batch_size]
     return idx1, idx2
+
+
+def pnorm(X, p, dim=None, keepdim=False, axis=None):
+    if p < 0:
+        raise ValueError('Power has to be positive. Was {}'.format(p))
+    if axis is not None:
+        dim = axis
+    return torch.sum(X**p, dim=dim, keepdim=keepdim) ** (1./p)

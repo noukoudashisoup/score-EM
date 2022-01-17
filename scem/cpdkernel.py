@@ -55,7 +55,7 @@ class KSTKernelCPD(metaclass=ABCMeta):
         Compute \sum_{i=1}^d \frac{\par^2 k(x, y)}{\par x \par y}
         evaluated at each x_i in X, and y_i in Y.
 
-        X: n x d Tensor.
+        
         Y: n x d Tensor.
 
         Return a [n, ] Tensor of the derivatives.
@@ -63,55 +63,62 @@ class KSTKernelCPD(metaclass=ABCMeta):
         pass
 
 
-class MultiQuadratic(KSTKernelCPD):
+class CKSTPrecondionedMQ(KSTKernelCPD):
 
-    """Class of Multi-Quadratic (MQ) kernels.
+    """Precontioned Multi-Quadratic kernel
+        k(x,y) = (c^2 + <(x-y), P^{-1}(x-y)>)^b
+        Note that the input has to have a compatible dimension with P. 
+
+        Args:
+            c (float): a positive bias parameter
+            b (float): the exponenent (positive)
+            P (torch.tensor): preconditioning matrix. 
+                Required to be positive definite.
     """
-
-    def __init__(self, b=0.5, c=1.0, s2=1.0):
+    def __init__(self, b=0.5, c=1.0, P=None):
         if (b <= 0) or b.is_integer():
             raise ValueError(
                 "b has to be positive and not an integer. Was {}".format(b))
         if not c > 0:
             raise ValueError("c has to be positive. Was {}".format(c))
+        if P is None:
+            P = torch.eye(self.dim)
         self.b = b
         self.c = c
-        self.s2 = (torch.tensor(s2) if not isinstance(s2, torch.Tensor)
-                   else s2)
+        self.P = P
+        U, s, _ = torch.linalg.svd((P+P.T)/2)
+        if torch.min(s) <= 1e-8:
+            raise ValueError('P has to be positive definite')
+        self.invsqrtP = (U @ torch.diag(s**(-0.5)))
+
     
     def order(self):
         return ceil(self.b)
 
+    def _load_params(self):
+        return self.c, self.b, self.invsqrtP
+
     def eval(self, X, Y):
-        b = self.b
-        c = self.c
-        s2 = torch.sqrt(self.s2)**2
-        D2 = util.pt_dist2_matrix(X, Y)
-        K = (-1)**ceil(b) * (c ** 2 + D2/s2) ** b
+        """Evalute the kernel on data X and Y """
+        c, b, invsqrtP = self._load_params()
+        X_ = X @ invsqrtP.T
+        Y_ = Y @ invsqrtP.T
+        D2 = util.pt_dist2_matrix(X_, Y_)
+        K = (-1)**ceil(b) * (c**2 + D2)**b
+        return K
+    
+    def pair_eval(self, X, Y):
+        """Evaluate k(x1, y1), k(x2, y2), ...
+        """
+        assert X.shape[0] == Y.shape[0]
+        c, b, invsqrtP = self._load_params()
+        X_ = X @ invsqrtP.T
+        Y_ = Y @ invsqrtP.T
+
+        K = (-1)**ceil(b) * (c**2 + torch.sum((X_-Y_)**2, 1))**b
         return K
 
-    def pair_eval(self, X, Y):
-        assert X.shape[0] == Y.shape[0]
-        b = self.b
-        c = self.c
-        s = torch.sqrt(self.s2)
-        return (-1)**ceil(b) * (c ** 2 + torch.sum(((X - Y)/s) ** 2, 1)) ** b
-
     def gradX(self, X, Y):
-        d = X.shape[1]
-        G = torch.stack([self.parX(X, Y, j) for j in range(d)])
-        return G.permute(1, 2, 0)
-
-    def gradX_pair(self, X, Y):
-        b = self.b
-        c = self.c
-        diff = X - Y
-        s2 = torch.sqrt(self.s2)**2
-        D2 = torch.sum((diff)**2, axis=1)
-        G = (-1)**ceil(b) * torch.einsum('ij,i->ij', diff/s2, 2.0*b*(c**2 + D2/s2)**(b-1))
-        return G
-    
-    def parX(self, X, Y, dim):
         """
         Compute the gradient with respect to the dimension dim of X in k(X, Y).
 
@@ -120,59 +127,82 @@ class MultiQuadratic(KSTKernelCPD):
 
         Return a numpy array of size nx x ny.
         """
-        s2 = torch.sqrt(self.s2)**2
-        D2 = util.pt_dist2_matrix(X, Y)
-        # 1d array of length nx
-        Xi = X[:, dim]
-        # 1d array of length ny
-        Yi = Y[:, dim]
-        # nx x ny
-        dim_diff = (Xi.unsqueeze(1) - Yi.unsqueeze(0))
-        assert dim_diff.shape == (X.shape[0], Y.shape[0])
-
-        b = self.b
-        c = self.c
-        Gdim = (-1)**ceil(b) * ( 2.0*b*(c**2 + D2/s2)**(b-1) )*dim_diff / s2
+        c, b, invsqrtP = self._load_params()
+        X_ = X @ invsqrtP.T
+        Y_ = Y @ invsqrtP.T
+        D2 = util.pt_dist2_matrix(X_, Y_)
+        diff = (X_[None] - Y_[:, None, :]).permute(1, 0, 2)
+        Gdim = ( 2.0*b*(c**2 + D2)**(b-1) )[:, :, None] * diff
+        Gdim = (-1)**ceil(b) * Gdim @  invsqrtP
         assert Gdim.shape[0] == X.shape[0]
         assert Gdim.shape[1] == Y.shape[0]
+        return Gdim
+
+    def gradX_pair(self, X, Y):
+        """
+        Compute the gradient with respect to the dimension dim of X in k(X, Y).
+
+        X: nx x d
+        Y: ny x d
+
+        Return a numpy array of size nx x ny.
+        """
+        c, b, invsqrtP = self._load_params()
+        X_ = X @ invsqrtP.T
+        Y_ = Y @ invsqrtP.T
+        diff = (X_ - Y_)
+        D2 = torch.sum(diff**2, axis=1)
+        Gdim = diff * ( 2.0*b*(c**2 + D2)**(b-1) )[:, None] 
+        Gdim = (-1)**ceil(b) * (Gdim @  invsqrtP)
         return Gdim
 
     def gradXY_sum(self, X, Y):
         """
         Compute
-        \sum_{i=1}^d \frac{\par^2 k(X, Y)}{\par x_i \par y_i}
+        \sum_{i=1}^d \frac{\partial^2 k(X, Y)}{\partial x_i \partial y_i}
         evaluated at each x_i in X, and y_i in Y.
 
-        X: nx x d numpy array.
-        Y: ny x d numpy array.
+        X: (torch.tensor) nx x d tensor
+        Y: (torch.tensor) ny x d tensor
 
-        Return a nx x ny numpy array of the derivatives.
+        Return a nx x ny tensor of the derivatives.
         """
-        s2 = torch.sqrt(self.s2)**2
-        b = self.b
-        c = self.c
-        D2 = util.pt_dist2_matrix(X, Y)
+        c, b, invsqrtP = self._load_params()
+        P_ = invsqrtP @ invsqrtP.T
+        X_ = X @ invsqrtP.T
+        Y_ = Y @ invsqrtP.T
+        diff = (X_[None] - Y_[:, None, :]).permute(1, 0, 2)
+        D2 = util.pt_dist2_matrix(X_, Y_)
 
-        # d = input dimension
-        d = X.shape[1]
-        c2D2 = c**2 + D2/s2
-        T1 = -4.0*b*(b-1)*D2*(c2D2**(b-2)) / (s2**2)
-        T2 = -2.0*b*d*c2D2**(b-1) / s2
-        return (-1)**ceil(b) * (T1 + T2)
+        c2D2 = c**2 + D2
+        T1 = torch.einsum('ij, nmi, nmj->nm', P_, diff, diff)
+        T1 = -T1 * 4.0*b*(b-1)*(c2D2**(b-2))
+        T2 = -2.0*b*torch.sum(torch.diag(P_))*c2D2**(b-1)
+        return (-1)**ceil(b) * ( T1 + T2 )
 
     def gradXY_sum_pair(self, X, Y):
-        s2 = torch.sqrt(self.s2)**2
-        b = self.b
-        c = self.c
-        D2 = torch.sum((X-Y)**2, axis=1)
+        """
+        Compute
+        \sum_{i=1}^d \frac{\partial^2 k(X, Y)}{\partial x_i \partial y_i}
+        evaluated at each x_i in X, and y_i in Y.
 
-        # d = input dimension
-        d = X.shape[1]
-        c2D2 = c**2 + D2/s2
-        T1 = -4.0*b*(b-1)*D2*(c2D2**(b-2)) / (s2**2)
-        T2 = -2.0*b*d*c2D2**(b-1) / s2
+        X: (torch.tensor) n x d tensor
+        Y: (torch.tensor) n x d tensor
+
+        Return a [n,] tensor of the derivatives.
+        """
+        c, b, invsqrtP = self._load_params()
+        P_ = invsqrtP @ invsqrtP.T
+        X_ = X @ invsqrtP.T
+        Y_ = Y @ invsqrtP.T
+        diff = (X_ - Y_)
+        D2 = torch.sum(diff**2, axis=-1)
+
+        c2D2 = c**2 + D2
+        T1 = torch.einsum('ij, ni, nj->n', P_, diff, diff)
+        T1 = -T1 * 4.0*b*(b-1)*(c2D2**(b-2))
+        T2 = -2.0*b*torch.sum(torch.diag(P_))*c2D2**(b-1)
         return (-1)**ceil(b) * (T1 + T2)
 
-    def order(self):
-        return ceil(self.b)
 
+# end class CKSTPrecondionedMQ
