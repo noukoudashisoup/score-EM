@@ -441,7 +441,6 @@ class KSTFuncCompose(KFuncCompose, KSTKernel):
         G = torch.einsum('nmi,inj->nmj', kG, g_feat_X)
         return G.reshape((nx, ny,)+X[0].shape)
 
-
     def gradXY_sum(self, X, Y):
         assert isinstance(self.f, FuncFeatureMap)
         k = self.k
@@ -934,6 +933,146 @@ class KIMQ(KSTKernel):
         T1 = -4.0*b*(b-1)*D2*(c2D2**(b-2)) / (s2**2)
         T2 = -2.0*b*d*c2D2**(b-1) / s2
         return T1 + T2
+
+
+class KPIMQ(KSTKernel):
+
+    """Precontioned Inverse Multi-Quadratic kernel
+        k(x,y) = (c^2 + <P(x-y), P(x-y)>)^b
+        Note that the input has to have a compatible dimension with P. 
+
+        Args:
+            c (float): a positive bias parameter
+            b (float): the exponenent (has to be negative)
+            P (torch.tensor): square root of a preconditioning matrix. 
+                Required to be positive definite.
+    """
+    def __init__(self, P, b=-0.5, c=1.0, ):
+        if not (b < 0):
+            raise ValueError(
+                "b has to be negative. Was {}".format(b))
+        if not c > 0:
+            raise ValueError("c has to be positive. Was {}".format(c))
+        if P is None:
+            P = torch.eye(self.dim)
+        self.b = b
+        self.c = c
+        self.P = P
+        _, s, _ = torch.linalg.svd((P @ P))
+        if torch.min(s) <= 1e-8:
+            raise ValueError('P has to be positive definite')
+
+    def _load_params(self):
+        return self.c, self.b, self.P
+
+    def eval(self, X, Y):
+        """Evalute the kernel on data X and Y """
+        c, b, P = self._load_params()
+        X_ = X @ P.T
+        Y_ = Y @ P.T
+        D2 = util.pt_dist2_matrix(X_, Y_)
+        K = (c**2 + D2)**b
+        return K
+    
+    def pair_eval(self, X, Y):
+        """Evaluate k(x1, y1), k(x2, y2), ...
+        """
+        assert X.shape[0] == Y.shape[0]
+        c, b, P = self._load_params()
+        X_ = X @ P.T
+        Y_ = Y @ P.T
+
+        K = (c**2 + torch.sum((X_-Y_)**2, 1))**b
+        return K
+
+    def gradX(self, X, Y):
+        """
+        Compute the gradient with respect to the dimension dim of X in k(X, Y).
+
+        X: nx x d
+        Y: ny x d
+
+        Return a numpy array of size nx x ny.
+        """
+        c, b, P = self._load_params()
+        X_ = X @ P.T
+        Y_ = Y @ P.T
+        D2 = util.pt_dist2_matrix(X_, Y_)
+        diff = (X_[None] - Y_[:, None, :]).permute(1, 0, 2)
+        Gdim = ( 2.0*b*(c**2 + D2)**(b-1) )[:, :, None] * diff
+        Gdim = Gdim @  P
+        assert Gdim.shape[0] == X.shape[0]
+        assert Gdim.shape[1] == Y.shape[0]
+        return Gdim
+
+    def gradX_pair(self, X, Y):
+        """
+        Compute the gradient with respect to the dimension dim of X in k(X, Y).
+
+        X: nx x d
+        Y: ny x d
+
+        Return a numpy array of size nx x ny.
+        """
+        c, b, P = self._load_params()
+        X_ = X @ P.T
+        Y_ = Y @ P.T
+        diff = (X_ - Y_)
+        D2 = torch.sum(diff**2, axis=1)
+        Gdim = diff * ( 2.0*b*(c**2 + D2)**(b-1) )[:, None] 
+        Gdim = (Gdim @  P)
+        return Gdim
+
+    def gradXY_sum(self, X, Y):
+        """
+        Compute
+        \sum_{i=1}^d \frac{\partial^2 k(X, Y)}{\partial x_i \partial y_i}
+        evaluated at each x_i in X, and y_i in Y.
+
+        X: (torch.tensor) nx x d tensor
+        Y: (torch.tensor) ny x d tensor
+
+        Return a nx x ny tensor of the derivatives.
+        """
+        c, b, P = self._load_params()
+        P_ = P @ P.T
+        X_ = X @ P.T
+        Y_ = Y @ P.T
+        diff = (X_[None] - Y_[:, None, :]).permute(1, 0, 2)
+        D2 = util.pt_dist2_matrix(X_, Y_)
+
+        c2D2 = c**2 + D2
+        T1 = torch.einsum('ij, nmi, nmj->nm', P_, diff, diff)
+        T1 = -T1 * 4.0*b*(b-1)*(c2D2**(b-2))
+        T2 = -2.0*b*torch.sum(torch.diag(P_))*c2D2**(b-1)
+        return ( T1 + T2 )
+
+    def gradXY_sum_pair(self, X, Y):
+        """
+        Compute
+        \sum_{i=1}^d \frac{\partial^2 k(X, Y)}{\partial x_i \partial y_i}
+        evaluated at each x_i in X, and y_i in Y.
+
+        X: (torch.tensor) n x d tensor
+        Y: (torch.tensor) n x d tensor
+
+        Return a [n,] tensor of the derivatives.
+        """
+        c, b, P = self._load_params()
+        P_ = P @ P.T
+        X_ = X @ P.T
+        Y_ = Y @ P.T
+        diff = (X_ - Y_)
+        D2 = torch.sum(diff**2, axis=-1)
+
+        c2D2 = c**2 + D2
+        T1 = torch.einsum('ij, ni, nj->n', P_, diff, diff)
+        T1 = -T1 * 4.0*b*(b-1)*(c2D2**(b-2))
+        T2 = -2.0*b*torch.sum(torch.diag(P_))*c2D2**(b-1)
+        return (T1 + T2)
+
+
+# end class KPIMQ
 
 
 class KSTRegularizedMQ(KSTKernel):
@@ -1830,29 +1969,26 @@ def main():
     d = 3
     X = torch.randn(n, d)
     Y = torch.randn(n, d)
-    mq = CKSTPrecondionedMQ(b=0.5, P=torch.eye(d))
-    kmq = KSTRegularizedCPDKernel(mq, d)
-    kmq_fast = KSTFastRegularizedCPDKernel(mq, d)
-    kmq_ = KSTRegularizedMQ(b=0.5)
-    kmq = kmq_
-    K = kmq.pair_eval(X, Y)
-    Kf = kmq_fast.pair_eval(X, Y)
-    K_ = kmq_.eval(X, X)
+    mq = CKSTPrecondionedMQ(b=1.1, P=torch.eye(d))
+    k1 = KSTRegularizedCPDKernel(mq, d)
+    k2 = KSTFastRegularizedCPDKernel(mq, d)
+
+    K = k1.pair_eval(X, Y)
+    Kf = k2.pair_eval(X, Y)
     # print((torch.abs(K-Kf)))
     print(torch.mean(torch.abs(K-Kf)))
 
-    G = kmq.gradX(X, Y)
-    G_ = kmq_fast.gradX(X, Y)
+    G = k1.gradX(X, Y)
+    G_ = k2.gradX(X, Y)
     print(torch.mean((G-G_)**2))
-    G = kmq.gradX_pair(X, Y)
-    G_ = kmq_fast.gradX_pair(X, Y)
-    print('aaa', torch.mean((G-G_)**2))
-    
-    G = kmq.gradXY_sum(X, Y)
-    G_ = kmq_fast.gradXY_sum(X, Y)
+    G = k1.gradX_pair(X, Y)
+    G_ = k2.gradX_pair(X, Y)
     print(torch.mean((G-G_)**2))
-    G = kmq.gradXY_sum_pair(X, Y)
-    G_ = kmq_fast.gradXY_sum_pair(X, Y)
+    G = k1.gradXY_sum(X, Y)
+    G_ = k2.gradXY_sum(X, Y)
+    print(torch.mean((G-G_)**2))
+    G = k1.gradXY_sum_pair(X, Y)
+    G_ = k2.gradXY_sum_pair(X, Y)
     print(torch.mean((G-G_)**2))
 
 

@@ -66,13 +66,13 @@ class KSTKernelCPD(metaclass=ABCMeta):
 class CKSTPrecondionedMQ(KSTKernelCPD):
 
     """Precontioned Multi-Quadratic kernel
-        k(x,y) = (c^2 + <(x-y), P^{-1}(x-y)>)^b
+        k(x,y) = (c^2 + <P(x-y), P(x-y)>)^b
         Note that the input has to have a compatible dimension with P. 
 
         Args:
             c (float): a positive bias parameter
             b (float): the exponenent (positive)
-            P (torch.tensor): preconditioning matrix. 
+            P (torch.tensor): square root of a preconditioning matrix. 
                 Required to be positive definite.
     """
     def __init__(self, b=0.5, c=1.0, P=None):
@@ -86,23 +86,21 @@ class CKSTPrecondionedMQ(KSTKernelCPD):
         self.b = b
         self.c = c
         self.P = P
-        U, s, _ = torch.linalg.svd((P+P.T)/2)
+        _, s, _ = torch.linalg.svd((P @ P))
         if torch.min(s) <= 1e-8:
             raise ValueError('P has to be positive definite')
-        self.invsqrtP = (U @ torch.diag(s**(-0.5)))
 
-    
     def order(self):
         return ceil(self.b)
 
     def _load_params(self):
-        return self.c, self.b, self.invsqrtP
+        return self.c, self.b, self.P
 
     def eval(self, X, Y):
         """Evalute the kernel on data X and Y """
-        c, b, invsqrtP = self._load_params()
-        X_ = X @ invsqrtP.T
-        Y_ = Y @ invsqrtP.T
+        c, b, P = self._load_params()
+        X_ = X @ P.T
+        Y_ = Y @ P.T
         D2 = util.pt_dist2_matrix(X_, Y_)
         K = (-1)**ceil(b) * (c**2 + D2)**b
         return K
@@ -111,9 +109,9 @@ class CKSTPrecondionedMQ(KSTKernelCPD):
         """Evaluate k(x1, y1), k(x2, y2), ...
         """
         assert X.shape[0] == Y.shape[0]
-        c, b, invsqrtP = self._load_params()
-        X_ = X @ invsqrtP.T
-        Y_ = Y @ invsqrtP.T
+        c, b, P = self._load_params()
+        X_ = X @ P.T
+        Y_ = Y @ P.T
 
         K = (-1)**ceil(b) * (c**2 + torch.sum((X_-Y_)**2, 1))**b
         return K
@@ -127,13 +125,13 @@ class CKSTPrecondionedMQ(KSTKernelCPD):
 
         Return a numpy array of size nx x ny.
         """
-        c, b, invsqrtP = self._load_params()
-        X_ = X @ invsqrtP.T
-        Y_ = Y @ invsqrtP.T
+        c, b, P = self._load_params()
+        X_ = X @ P.T
+        Y_ = Y @ P.T
         D2 = util.pt_dist2_matrix(X_, Y_)
         diff = (X_[None] - Y_[:, None, :]).permute(1, 0, 2)
         Gdim = ( 2.0*b*(c**2 + D2)**(b-1) )[:, :, None] * diff
-        Gdim = (-1)**ceil(b) * Gdim @  invsqrtP
+        Gdim = (-1)**ceil(b) * Gdim @  P
         assert Gdim.shape[0] == X.shape[0]
         assert Gdim.shape[1] == Y.shape[0]
         return Gdim
@@ -147,13 +145,13 @@ class CKSTPrecondionedMQ(KSTKernelCPD):
 
         Return a numpy array of size nx x ny.
         """
-        c, b, invsqrtP = self._load_params()
-        X_ = X @ invsqrtP.T
-        Y_ = Y @ invsqrtP.T
+        c, b, P = self._load_params()
+        X_ = X @ P.T
+        Y_ = Y @ P.T
         diff = (X_ - Y_)
         D2 = torch.sum(diff**2, axis=1)
         Gdim = diff * ( 2.0*b*(c**2 + D2)**(b-1) )[:, None] 
-        Gdim = (-1)**ceil(b) * (Gdim @  invsqrtP)
+        Gdim = (-1)**ceil(b) * (Gdim @  P)
         return Gdim
 
     def gradXY_sum(self, X, Y):
@@ -167,10 +165,10 @@ class CKSTPrecondionedMQ(KSTKernelCPD):
 
         Return a nx x ny tensor of the derivatives.
         """
-        c, b, invsqrtP = self._load_params()
-        P_ = invsqrtP @ invsqrtP.T
-        X_ = X @ invsqrtP.T
-        Y_ = Y @ invsqrtP.T
+        c, b, P = self._load_params()
+        P_ = P @ P.T
+        X_ = X @ P.T
+        Y_ = Y @ P.T
         diff = (X_[None] - Y_[:, None, :]).permute(1, 0, 2)
         D2 = util.pt_dist2_matrix(X_, Y_)
 
@@ -191,10 +189,10 @@ class CKSTPrecondionedMQ(KSTKernelCPD):
 
         Return a [n,] tensor of the derivatives.
         """
-        c, b, invsqrtP = self._load_params()
-        P_ = invsqrtP @ invsqrtP.T
-        X_ = X @ invsqrtP.T
-        Y_ = Y @ invsqrtP.T
+        c, b, P = self._load_params()
+        P_ = P @ P.T
+        X_ = X @ P.T
+        Y_ = Y @ P.T
         diff = (X_ - Y_)
         D2 = torch.sum(diff**2, axis=-1)
 
