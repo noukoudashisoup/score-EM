@@ -2,7 +2,7 @@ The project repository for EM learning with stein discrepancies.
 
 
 # Requirements 
-* pytorch == 1.6.0
+* pytorch >= 1.7.0
 * numpy 
 * scipy
 
