@@ -175,7 +175,7 @@ class CKSTPrecondionedMQ(KSTKernelCPD):
         c2D2 = c**2 + D2
         T1 = torch.einsum('ij, nmi, nmj->nm', P_, diff, diff)
         T1 = -T1 * 4.0*b*(b-1)*(c2D2**(b-2))
-        T2 = -2.0*b*torch.sum(torch.diag(P_))*c2D2**(b-1)
+        T2 = -2.0*b*torch.trace(P_) * c2D2**(b-1)
         return (-1)**ceil(b) * ( T1 + T2 )
 
     def gradXY_sum_pair(self, X, Y):
@@ -199,7 +199,7 @@ class CKSTPrecondionedMQ(KSTKernelCPD):
         c2D2 = c**2 + D2
         T1 = torch.einsum('ij, ni, nj->n', P_, diff, diff)
         T1 = -T1 * 4.0*b*(b-1)*(c2D2**(b-2))
-        T2 = -2.0*b*torch.sum(torch.diag(P_))*c2D2**(b-1)
+        T2 = -2.0*b*torch.trace(P_) * c2D2**(b-1)
         return (-1)**ceil(b) * (T1 + T2)
 
 

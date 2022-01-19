@@ -441,6 +441,28 @@ class KSTFuncCompose(KFuncCompose, KSTKernel):
         G = torch.einsum('nmi,inj->nmj', kG, g_feat_X)
         return G.reshape((nx, ny,)+X[0].shape)
 
+    def gradX_pair(self, X, Y):
+        k = self.k
+        f = self.f
+        nx = X.shape[0]
+        assert nx = Y.shape[0]
+        dx = X[0].numel()
+
+        assert len(f.output_shape()) == 1
+        d_out = f.output_shape()[0]
+
+        # nx x d_out
+        kG = k.gradX_pair(f(X), f(Y))
+
+        g_feat_X = torch.empty((d_out, nx, dx),
+                               dtype=X.dtype,
+                               device=X.device)
+        for i_o in range(d_out):
+            g_feat_X[i_o] = f.component_grad(X, i_o).reshape(nx, dx)
+        
+        G = torch.einsum('ni,inj->nj', kG, g_feat_X)
+        return G.reshape((nx, )+X[0].shape)
+
     def gradXY_sum(self, X, Y):
         assert isinstance(self.f, FuncFeatureMap)
         k = self.k
@@ -958,7 +980,7 @@ class KPIMQ(KSTKernel):
         self.b = b
         self.c = c
         self.P = P
-        _, s, _ = torch.linalg.svd((P @ P))
+        _, s, _ = torch.linalg.svd((P @ P.T))
         if torch.min(s) <= 1e-8:
             raise ValueError('P has to be positive definite')
 
@@ -982,7 +1004,7 @@ class KPIMQ(KSTKernel):
         X_ = X @ P.T
         Y_ = Y @ P.T
 
-        K = (c**2 + torch.sum((X_-Y_)**2, 1))**b
+        K = (c**2 + torch.sum((X_-Y_)**2, axis=-1))**b
         return K
 
     def gradX(self, X, Y):
@@ -1000,7 +1022,7 @@ class KPIMQ(KSTKernel):
         D2 = util.pt_dist2_matrix(X_, Y_)
         diff = (X_[None] - Y_[:, None, :]).permute(1, 0, 2)
         Gdim = ( 2.0*b*(c**2 + D2)**(b-1) )[:, :, None] * diff
-        Gdim = Gdim @  P
+        Gdim = Gdim @ P
         assert Gdim.shape[0] == X.shape[0]
         assert Gdim.shape[1] == Y.shape[0]
         return Gdim
@@ -1044,7 +1066,7 @@ class KPIMQ(KSTKernel):
         c2D2 = c**2 + D2
         T1 = torch.einsum('ij, nmi, nmj->nm', P_, diff, diff)
         T1 = -T1 * 4.0*b*(b-1)*(c2D2**(b-2))
-        T2 = -2.0*b*torch.sum(torch.diag(P_))*c2D2**(b-1)
+        T2 = -2.0*b*torch.trace(P_)*c2D2**(b-1)
         return ( T1 + T2 )
 
     def gradXY_sum_pair(self, X, Y):
@@ -1068,7 +1090,7 @@ class KPIMQ(KSTKernel):
         c2D2 = c**2 + D2
         T1 = torch.einsum('ij, ni, nj->n', P_, diff, diff)
         T1 = -T1 * 4.0*b*(b-1)*(c2D2**(b-2))
-        T2 = -2.0*b*torch.sum(torch.diag(P_))*c2D2**(b-1)
+        T2 = -2.0*b*torch.trace(P_) * c2D2**(b-1)
         return (T1 + T2)
 
 
@@ -1633,10 +1655,12 @@ class KEucNorm(KSTKernel):
         if loc is None:
             loc = torch.zeros_like(X[0])
   
-        Xnorm = util.pnorm((X-loc)/s, 2, dim=-1, keepdim=False)
-        Ynorm = util.pnorm((Y-loc)/s, 2, dim=-1, keepdim=False)
+        X_ = (X-loc) / s
+        Y_ = (Y-loc) / s
+        Xnorm = util.pnorm(X_, 2, dim=-1, keepdim=False)
+        Ynorm = util.pnorm(Y_, 2, dim=-1, keepdim=False)
         return p*torch.outer(
-            Xnorm**(p-2) * (X[:, dim]-loc[dim])/s**2, c + Ynorm**p)
+            Xnorm**(p-2) * (X_[:, dim])/s, c + Ynorm**p)
 
     def gradX(self, X, Y):
         d = X.shape[1]
@@ -1647,22 +1671,24 @@ class KEucNorm(KSTKernel):
         p, c, s, loc = self._load_params()
         if loc is None:
             loc = torch.zeros_like(X[0])
-  
-        Xnorm = util.pnorm((X-loc)/s, 2, dim=-1, keepdim=True)
-        Ynorm = util.pnorm((Y-loc)/s, 2, dim=-1, keepdim=False)
-        return Xnorm**(p-2) * (X-loc)/s**2 * (c + Ynorm**p)[:, None]
+        X_ = (X-loc) / s
+        Y_ = (Y-loc) / s
+        Xnorm = util.pnorm(X_, 2, dim=-1, keepdim=True)
+        Ynorm = util.pnorm(Y_, 2, dim=-1, keepdim=False)
+        return Xnorm**(p-2) * (X_/s) * (c + Ynorm**p)[:, None]
 
     def gradXY_sum(self, X, Y):
         p, c, s, loc = self._load_params()
         if loc is None:
             loc = torch.zeros_like(X[0])
 
-        Xnorm = util.pnorm((X-loc)/s, 2, dim=-1, keepdim=False)
-        Ynorm = util.pnorm((Y-loc)/s, 2, dim=-1, keepdim=False)
+        X_ = (X-loc) / s
+        Y_ = (Y-loc) / s
+        Xnorm = util.pnorm(X_, 2, dim=-1, keepdim=False)
+        Ynorm = util.pnorm(Y_, 2, dim=-1, keepdim=False)
 
-        s2 = s**2
         grad_sum = p**2 * torch.outer(Xnorm**(p-2), Ynorm**(p-2))
-        grad_sum = grad_sum * torch.einsum('ij, kl->ik', (X-loc)/s2, (Y-loc)/s2)
+        grad_sum = grad_sum * torch.einsum('ij, kl->ik', X_, Y_) / (s**2)
         return grad_sum
     
     def gradXY_sum_pair(self, X, Y):
@@ -1670,12 +1696,13 @@ class KEucNorm(KSTKernel):
         if loc is None:
             loc = torch.zeros_like(X[0])
 
-        Xnorm = util.pnorm((X-loc)/s, 2, dim=-1, keepdim=False)
-        Ynorm = util.pnorm((Y-loc)/s, 2, dim=-1, keepdim=False)
+        X_ = (X-loc) / s
+        Y_ = (Y-loc) / s
+        Xnorm = util.pnorm(X_, 2, dim=-1, keepdim=False)
+        Ynorm = util.pnorm(Y_, 2, dim=-1, keepdim=False)
 
-        s2 = s**2
         grad_sum = p**2 * (Xnorm**(p-2) * Ynorm**(p-2))
-        grad_sum = grad_sum * ( ((X-loc)/s2) * ((Y-loc)/s2) ).sum(axis=1)
+        grad_sum = grad_sum * ( X_ * Y_ ).sum(axis=1) / (s**2)
         return grad_sum
 
 
@@ -1848,7 +1875,7 @@ class KSTSumKernel(KSTKernel):
         n, d = X.shape
 
         G = self._sum_op(X, Y, 'gradXY_sum_pair',
-                         [n, d],
+                         [n, ],
                          X.dtype, X.device)
         return G
  
@@ -1861,7 +1888,7 @@ class BKLinear(DifferentiableKernel):
         return X @ Y.T
 
     def pair_eval(self, X, Y):
-        return torch.sum(X * Y, axis=0)
+        return torch.sum(X * Y, axis=-1)
 
     def gradX(self, X, Y):
         nx, dx = X.shape
@@ -1891,6 +1918,56 @@ class BKLinear(DifferentiableKernel):
         G[:, idx, idx] += 1.
         return G
 
+
+class KLinear(BKLinear, KSTKernel):
+    """Linear kernel
+
+    """
+    
+    def __init__(self, loc=None, scale=1.):
+        super(KLinear, self).__init__()
+        self.loc = loc
+        self.scale = scale
+            
+    def _center_scale(self, X, Y):
+        loc = self.loc
+        s = self.scale
+        if loc is None:
+            loc = torch.zeros_like(X[0])
+        X_ = (X-loc) / s
+        Y_ = (Y-loc) / s
+        return X_, Y_
+
+    def eval(self, X, Y):
+        X_, Y_ = self._center_scale(X, Y)
+        return super(KLinear, self).eval(X_, Y_)
+
+    def pair_eval(self, X, Y):
+        X_, Y_ = self._center_scale(X, Y)
+        return super().pair_eval(X_, Y_)
+
+    def gradX(self, X, Y):
+        s = self.scale
+        X_, Y_ = self._center_scale(X, Y)
+        return super().gradX(X_, Y_/s)
+
+    def gradX_pair(self, X, Y):
+        loc = self.loc
+        s = self.scale
+        return (Y-loc) / (s**2)
+
+    def gradXY_sum(self, X, Y):
+        s = self.scale
+        nx, d = X.shape
+        ny, _ = Y.shape
+        assert Y.shape[1] == d
+        return d * torch.ones((nx, ny), dtype=X.dtype) / s**2
+    
+    def gradXY_sum_pair(self, X, Y):
+        s = self.scale
+        assert X.shape == Y.shape
+        n, d = X.shape
+        return d * torch.ones((n, ), dtype=X.dtype) / s**2
 
 
 class KSTProduct(KSTKernel):
