@@ -445,7 +445,7 @@ class KSTFuncCompose(KFuncCompose, KSTKernel):
         k = self.k
         f = self.f
         nx = X.shape[0]
-        assert nx = Y.shape[0]
+        assert nx == Y.shape[0]
         dx = X[0].numel()
 
         assert len(f.output_shape()) == 1
