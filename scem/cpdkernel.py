@@ -129,7 +129,7 @@ class CKSTPrecondionedMQ(KSTKernelCPD):
         X_ = X @ P.T
         Y_ = Y @ P.T
         D2 = util.pt_dist2_matrix(X_, Y_)
-        diff = (X_[None] - Y_[:, None, :]).permute(1, 0, 2)
+        diff = (X_[:, None] - Y_[None])
         Gdim = ( 2.0*b*(c**2 + D2)**(b-1) )[:, :, None] * diff
         Gdim = (-1)**ceil(b) * Gdim @  P
         assert Gdim.shape[0] == X.shape[0]
@@ -169,7 +169,7 @@ class CKSTPrecondionedMQ(KSTKernelCPD):
         P_ = P @ P.T
         X_ = X @ P.T
         Y_ = Y @ P.T
-        diff = (X_[None] - Y_[:, None, :]).permute(1, 0, 2)
+        diff = (X_[:, None] - Y_[None])
         D2 = util.pt_dist2_matrix(X_, Y_)
 
         c2D2 = c**2 + D2
