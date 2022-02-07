@@ -61,7 +61,7 @@ class DifferentiableKernel(Kernel):
         dims = list(range(len(X.shape)))
         dims[0] = 1
         dims[1] = 0
-        return self.gradX(Y, X).permute(*dims)
+        return self.gradX(Y, X).transpose(*dims)
         
     @abstractmethod
     def gradXY(self, X, Y):
@@ -173,7 +173,7 @@ class DKSTKernel(Kernel):
         dims = list(range(len(X.shape)))
         dims[0] = 1
         dims[1] = 0
-        return self.gradX(Y, X).permute(*dims)
+        return self.gradX(Y, X).transpose(*dims)
 
     def gradXY_sum(self, X, Y, shift=-1):
         """
@@ -1944,12 +1944,12 @@ class KLinear(BKLinear, KSTKernel):
 
     def pair_eval(self, X, Y):
         X_, Y_ = self._center_scale(X, Y)
-        return super().pair_eval(X_, Y_)
+        return super(KLinear, self).pair_eval(X_, Y_)
 
     def gradX(self, X, Y):
         s = self.scale
         X_, Y_ = self._center_scale(X, Y)
-        return super().gradX(X_, Y_/s)
+        return super(KLinear, self).gradX(X_, Y_/s)
 
     def gradX_pair(self, X, Y):
         loc = self.loc
