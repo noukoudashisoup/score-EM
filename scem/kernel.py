@@ -2,6 +2,7 @@
 A module containing kernel functions.
 """
 
+from typing import Callable
 import torch
 from scem import util, polynom
 from math import ceil
@@ -980,7 +981,7 @@ class KPIMQ(KSTKernel):
         self.b = b
         self.c = c
         self.P = P
-        _, s, _ = torch.linalg.svd((P @ P.T))
+        s, _ = torch.linalg.eigh((P @ P.T))
         if torch.min(s) <= 1e-8:
             raise ValueError('P has to be positive definite')
 
@@ -1619,8 +1620,10 @@ class KSTFastRegularizedCPDKernel(KSTKernel):
 
 class KEucNorm(KSTKernel):
 
-    def __init__(self, p=1, c=1, loc=None, scale=1.):
+    def __init__(self, p=2, c=1, loc=None, scale=1.):
         self.p = p
+        if p < 2:
+            raise ValueError('power has to be equal to 2, or greater')
         self.c = c
         self.loc = loc 
         self.scale = scale
@@ -1924,10 +1927,11 @@ class KLinear(BKLinear, KSTKernel):
 
     """
     
-    def __init__(self, loc=None, scale=1.):
+    def __init__(self, loc=None, scale=1., bias=0.):
         super(KLinear, self).__init__()
         self.loc = loc
         self.scale = scale
+        self.bias = bias
             
     def _center_scale(self, X, Y):
         loc = self.loc
@@ -1940,11 +1944,11 @@ class KLinear(BKLinear, KSTKernel):
 
     def eval(self, X, Y):
         X_, Y_ = self._center_scale(X, Y)
-        return super(KLinear, self).eval(X_, Y_)
+        return super(KLinear, self).eval(X_, Y_) + self.bias
 
     def pair_eval(self, X, Y):
         X_, Y_ = self._center_scale(X, Y)
-        return super(KLinear, self).pair_eval(X_, Y_)
+        return super(KLinear, self).pair_eval(X_, Y_) + self.bias
 
     def gradX(self, X, Y):
         s = self.scale
@@ -2032,6 +2036,188 @@ class KSTProduct(KSTKernel):
         T2 = torch.sum(k1.gradX_pair(X, Y) * k2.gradX_pair(Y, X), axis=-1)
         T2 += torch.sum(k2.gradX_pair(X, Y) * k1.gradX_pair(Y, X), axis=-1)
         return T1 + T2
+
+
+class KMatern(KSTKernel):
+    """
+    Matern kernel. 
+    """
+    def __init__(self, smooth_level=1., scale=1.):
+        # if smooth_level <= 1:
+        #     raise ValueError(('Smoothness parameter should be greater'
+        #                       'than 1. Was {}').format(smooth_level)
+        #                      )
+        self.smooth_level = smooth_level
+        self.scale = scale
+    
+    def _load_params(self):
+        m = self.smooth_level
+        s = self.scale
+        return m, s
+
+    def eval(self, X, Y): 
+        m, s = self._load_params()
+        w = 3**0.5 / s
+        D = torch.sqrt(util.pt_dist2_matrix(X, Y))
+        K = torch.exp(-w*D) * (1+w*D)
+        return K
+
+    def pair_eval(self, X, Y): 
+        m, s = self._load_params()
+        w = 3**0.5 / s
+        D = torch.sum((X-Y)**2, axis=-1)**0.5
+        K = torch.exp(-w*D) * (1+w*D)
+        return K
+
+    def gradX(self, X, Y):
+        m, s = self._load_params()
+        w = 3**0.5 / s
+        D = util.pt_dist2_matrix(X, Y) ** 0.5
+        K = torch.exp(-w*D) * (1+w*D)
+        zero_idx = torch.isclose(D, torch.zeros_like(D))
+        diff = (X.unsqueeze(1)-Y.unsqueeze(0))
+        K = w**2 * torch.exp(-w*D).unsqueeze(-1) * diff
+        K[zero_idx] = 0.
+        return K
+
+    def gradX_pair(self, X, Y):
+        assert X.shape == Y.shape
+        m, s = self._load_params()
+        w = 3**0.5 / s
+        D = torch.sum((X-Y)**2, axis=-1) ** 0.5
+        K = torch.exp(-w*D) * (1+w*D)
+        zero_idx = torch.isclose(D, torch.zeros_like(D))
+        K = w**2 * (X-Y) * torch.exp(-w*D).unsqueeze(-1)
+        K[zero_idx] = 0.
+        return K
+
+    def gradY(self, X, Y):
+        dims = list(range(len(X.shape)))
+        dims[0] = 1
+        dims[1] = 0
+        return self.gradX(Y, X).transpose(*dims)
+
+    def gradXY_sum(self, X, Y):
+        """
+        Compute \sum_{i=1}^d \frac{\par^2 k(x, Y)}{\par x_i \par y_i}
+        evaluated at each x_i in X, and y_i in Y.
+
+        X: nx x d numpy array.
+        Y: ny x d numpy array.
+
+        Return a nx x ny numpy array of the derivatives.
+        """
+        d = X.shape[1]
+        m, s = self._load_params()
+        w = 3**0.5 / s
+        D = util.pt_dist2_matrix(X, Y) ** 0.5
+        K = w**2 * torch.exp(-w*D) * ( -d + w*D )
+        return K
+
+    def gradXY_sum_pair(self, X, Y):
+        """
+        Compute \sum_{i=1}^d \frac{\par^2 k(x, y)}{\par x \par y}
+        evaluated at each x_i in X, and y_i in Y.
+
+        X: n x d Tensor.
+        Y: n x d Tensor.
+
+        Return a [n, ] Tensor of the derivatives.
+        """
+        d = X.shape[1]
+        m, s = self._load_params()
+        w = 3**0.5 / s
+        D = torch.sum((X-Y)**2, axis=-1)**0.5
+        K = w**2 * torch.exp(-w*D) * ( -d + w*D )
+        return K
+
+
+class WeightFunction:
+    """
+    Abstract class for a feature map of a kernel.
+    Assume the map is differentiable.
+    """
+
+    @abstractmethod
+    def __call__(self, x):
+        """
+        Return a feature vector for the input x.
+        """
+        raise NotImplementedError()
+
+    def grad(self, X):
+        def f_(X):
+            return self(X)
+        return util.gradient(f_, 0, [X])
+
+# end class WeightFunction
+
+class MultiquadraticWeight(WeightFunction):
+
+    """Weight function (bias+|x|^2)^p"""
+
+    def __init__(self, p=0.5, bias=1):
+        if bias <= 0:
+            raise ValueError('Bias should be positive.'
+                             'Was {}'.format(bias))
+        self.p = p
+        self.bias = bias
+    
+    def __call__(self, X):
+        norm = torch.sum(X**2, axis=-1)
+        return (self.bias**2 + norm)**self.p
+
+    def grad(self, X):
+        norm = torch.sum(X**2, axis=-1, keepdim=True)
+        p = self.p
+        return 2*p * (self.bias**2+norm)**(p-1) * X
+
+
+class KSTWeight(KSTKernel):
+    """KSTKernel representing the product of two kernels
+    Attributes:
+        w_func: WeightFunction
+    """
+    def __init__(self, w_func):
+        self.w_func = w_func
+
+    def _eval(self, X, Y):
+        w = self.w_func
+        Wx = w(X)
+        Wy = w(Y)
+        return Wx, Wy
+
+    def eval(self, X, Y):
+        Wx, Wy = self._eval(X, Y)
+        return torch.outer(Wx, Wy)
+
+    def pair_eval(self, X, Y):
+        Wx, Wy = self._eval(X, Y)
+        return Wx * Wy
+
+    def gradX(self, X, Y):
+        w = self.w_func
+        Gx = w.grad(X).unsqueeze(1)
+        Wy = w(Y)
+        return torch.einsum('ijk,j->ijk', Gx, Wy)
+
+    def gradX_pair(self, X, Y):
+        w = self.w_func
+        Gx = w.grad(X)
+        Wy = w(Y).unsqueeze(1)
+        return Gx * Wy
+
+    def gradXY_sum(self, X, Y):
+        w = self.w_func
+        Gx = w.grad(X)
+        Gy = w.grad(Y)
+        return Gx @ Gy.T
+
+    def gradXY_sum_pair(self, X, Y):
+        w = self.w_func
+        Gx = w.grad(X)
+        Gy = w.grad(Y)
+        return torch.sum(Gx * Gy, axis=-1)
 
 
 kernel_derivatives = {

@@ -242,3 +242,66 @@ def pnorm(X, p, dim=None, keepdim=False, axis=None):
     if axis is not None:
         dim = axis
     return torch.sum(X**p, dim=dim, keepdim=keepdim) ** (1./p)
+
+
+def dimwise_dist_matrix(X, Y):
+    """
+    Construct a pairwise Euclidean distance matrix of size X.shape[0] x Y.shape[0] x X.shape[1]
+    """
+    sx = X**2
+    sy = Y**2
+    D2 = sx.unsqueeze(1) + sy.unsqueeze(0) - 2.0*torch.einsum('ij,kj->ikj', X, Y)
+    # to prevent numerical errors from taking sqrt of negative numbers
+    D2[D2 < 0] = 0
+    D = torch.sqrt(D2)
+    return D
+
+
+def dimwise_meddistance(X, subsample=None, mean_on_fail=True):
+    """
+    Compute the median of pairwise, dimension wise distances (not distance squared) of points
+    in the matrix.  Useful as a heuristic for setting Gaussian kernel's width.
+
+    Parameters
+    ----------
+    X : n x d numpy array
+    mean_on_fail: True/False. If True, use the mean when the median distance is 0.
+        This can happen especially, when the data are discrete e.g., 0/1, and 
+        there are more slightly more 0 than 1. In this case, the m
+
+    Return
+    ------
+    array of median distance of size d
+    """
+    if subsample is None:
+        D = dimwise_dist_matrix(X, X)
+        idx1, idx2 = torch.tril_indices(D.shape[0], D.shape[1])
+        Tri = D[idx1, idx2].reshape(-1, X.shape[-1])
+        med = torch.quantile(Tri, axis=0, q=0.5)
+        if torch.any(med <= 0):
+            # use the mean
+            return torch.mean(Tri, axis=0)
+        return med
+
+    else:
+        assert subsample > 0
+        rand_state = torch.get_rng_state()
+        torch.random.seed(9827)
+        n = X.shape[0]
+        ind = np.random.choice(n, min(subsample, n), replace=False)
+        torch.set_rng_state(rand_state)
+
+        # recursion just one
+        return dimwise_meddistance(X[ind, :], None, mean_on_fail)
+
+
+def lower_factorial(n, k):
+    """Returns \prod_{i=0}^{k-1} (n-i) """
+    if k == 0:
+        return 1.
+    return np.prod([(n-ik) for ik in range(k)])
+
+def featurize_bow(X, W):
+    # vocab size
+    n, d = X.shape
+    dat
