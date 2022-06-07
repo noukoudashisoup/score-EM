@@ -560,9 +560,8 @@ class BKGauss(DifferentiableKernel):
         K : a n1 x n2 Gram matrix.
         """
         sigma2 = torch.sqrt(self.sigma2**2)
-        sumx2 = torch.sum(X**2, dim=1).view(-1, 1)
-        sumy2 = torch.sum(Y**2, dim=1).view(1, -1)
-        D2 = sumx2 - 2*torch.matmul(X, Y.transpose(1, 0)) + sumy2
+        D2 = util.pt_dist2_matrix(X, Y)
+        print(D2)
         K = torch.exp(-D2.div(2.0*sigma2))
         return K
 
@@ -677,7 +676,7 @@ class KGauss(BKGauss, KSTKernel):
         assert d1==d2, 'Dimensions of the two inputs must be the same'
         d = d1
         sigma2 = torch.sqrt(self.sigma2)**2
-        D2 = torch.sum(X**2, 1).view(n1, 1) - 2*torch.matmul(X, Y.T) + torch.sum(Y**2, 1).view(1, n2)
+        D2 = util.pt_dist2_matrix(X, Y)
         K = torch.exp(-D2/(2.0*sigma2))
         G = K/sigma2 * (d - D2/sigma2)
         return G
@@ -2065,7 +2064,7 @@ class KMatern(KSTKernel):
     def pair_eval(self, X, Y): 
         m, s = self._load_params()
         w = 3**0.5 / s
-        D = torch.sum((X-Y)**2, axis=-1)**0.5
+        D = torch.sqrt(torch.sum((X-Y)**2, axis=-1))
         K = torch.exp(-w*D) * (1+w*D)
         return K
 
@@ -2076,7 +2075,7 @@ class KMatern(KSTKernel):
         K = torch.exp(-w*D) * (1+w*D)
         zero_idx = torch.isclose(D, torch.zeros_like(D))
         diff = (X.unsqueeze(1)-Y.unsqueeze(0))
-        K = w**2 * torch.exp(-w*D).unsqueeze(-1) * diff
+        K = -w**2 * torch.exp(-w*D).unsqueeze(-1) * diff
         K[zero_idx] = 0.
         return K
 
@@ -2087,7 +2086,7 @@ class KMatern(KSTKernel):
         D = torch.sum((X-Y)**2, axis=-1) ** 0.5
         K = torch.exp(-w*D) * (1+w*D)
         zero_idx = torch.isclose(D, torch.zeros_like(D))
-        K = w**2 * (X-Y) * torch.exp(-w*D).unsqueeze(-1)
+        K = -w**2 * (X-Y) * torch.exp(-w*D).unsqueeze(-1)
         K[zero_idx] = 0.
         return K
 
@@ -2111,7 +2110,7 @@ class KMatern(KSTKernel):
         m, s = self._load_params()
         w = 3**0.5 / s
         D = util.pt_dist2_matrix(X, Y) ** 0.5
-        K = w**2 * torch.exp(-w*D) * ( -d + w*D )
+        K = -w**2 * torch.exp(-w*D) * ( -d + w*D )
         return K
 
     def gradXY_sum_pair(self, X, Y):
@@ -2128,7 +2127,7 @@ class KMatern(KSTKernel):
         m, s = self._load_params()
         w = 3**0.5 / s
         D = torch.sum((X-Y)**2, axis=-1)**0.5
-        K = w**2 * torch.exp(-w*D) * ( -d + w*D )
+        K = -w**2 * torch.exp(-w*D) * ( -d + w*D )
         return K
 
 
@@ -2154,23 +2153,26 @@ class WeightFunction:
 
 class MultiquadraticWeight(WeightFunction):
 
-    """Weight function (bias+|x|^2)^p"""
+    """Weight function (bias^2+|x-loc|^2)^p"""
 
-    def __init__(self, p=0.5, bias=1):
+    def __init__(self, p=0.5, bias=1, loc=None):
         if bias <= 0:
             raise ValueError('Bias should be positive.'
                              'Was {}'.format(bias))
         self.p = p
         self.bias = bias
+        self.loc = loc
     
     def __call__(self, X):
-        norm = torch.sum(X**2, axis=-1)
+        X_ = X if self.loc is None else X-self.loc
+        norm = torch.sum(X_**2, axis=-1)
         return (self.bias**2 + norm)**self.p
 
     def grad(self, X):
-        norm = torch.sum(X**2, axis=-1, keepdim=True)
+        X_ = X if self.loc is None else X-self.loc
+        norm = torch.sum(X_**2, axis=-1, keepdim=True)
         p = self.p
-        return 2*p * (self.bias**2+norm)**(p-1) * X
+        return 2*p * (self.bias**2+norm)**(p-1) * X_
 
 
 class KSTWeight(KSTKernel):
