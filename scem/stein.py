@@ -9,7 +9,7 @@ import numpy as np
 from scem import util
 
 
-def ksd_ustat_gram(X, S, k):
+def ksd_gram(X, S, k):
     """Returns the gram matrix of 
     a score-based Stein kernel
 
@@ -33,6 +33,7 @@ def ksd_ustat_gram(X, S, k):
     B = torch.einsum('ijk,jk->ij', kG, S)
     h = K*gram_score + B + B.T + k.gradXY_sum(X, X)
     return h
+
 
 def opt_t_ksd_ustat(X, score_fn, k, return_variance):
     """Returns the gram matrix of 
@@ -161,7 +162,7 @@ def ksd_ustat(X, score_fn, k, return_variance=False):
     """Computes KSD U-stat estimate"""
     n = X.shape[0]
     S = score_fn(X)
-    H = ksd_ustat_gram(X, S, k)
+    H = ksd_gram(X, S, k)
     stat = (torch.sum(H) - torch.sum(torch.diag(H)))
     stat /= (n*(n-1))
     if not return_variance:
@@ -184,7 +185,7 @@ def kcsd_ustat(X, Z, cond_score_fn, k, l, return_variance=False):
     n = X.shape[0]
     assert n == Z.shape[0]
     S = cond_score_fn(X, Z)
-    cond_ksd_gram = ksd_ustat_gram(Z, S, l)
+    cond_ksd_gram = ksd_gram(Z, S, l)
     K = k.eval(X, X) 
     H = K * cond_ksd_gram
     stat = (torch.sum(H) - torch.sum(torch.diag(H)))

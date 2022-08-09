@@ -634,7 +634,6 @@ class BKGauss(DifferentiableKernel):
         return G
 
 
-
 class KGauss(BKGauss, KSTKernel):
     def __init__(self, sigma2):
         """
@@ -660,6 +659,14 @@ class KGauss(BKGauss, KSTKernel):
     
     def parY(self, X, Y, dim):
         return self.parX(Y, X, dim).T
+
+    def gradX_pair(self, X, Y):
+        assert X.shape == Y.shape
+        s2 = self.sigma2
+        diff = X - Y
+        D2 = torch.sum((diff)**2, axis=-1, keepdims=True)
+        K = -diff/s2 * torch.exp(-D2/(2.*s2))
+        return K
 
     def gradXY_sum(self, X, Y):
         """
@@ -2153,26 +2160,29 @@ class WeightFunction:
 
 class MultiquadraticWeight(WeightFunction):
 
-    """Weight function (bias^2+|x-loc|^2)^p"""
+    """Weight function (bias^2+scale**2*|x-loc|^2)^p"""
 
-    def __init__(self, p=0.5, bias=1, loc=None):
+    def __init__(self, p=0.5, bias=1, scale=1., loc=None):
         if bias <= 0:
             raise ValueError('Bias should be positive.'
                              'Was {}'.format(bias))
         self.p = p
         self.bias = bias
         self.loc = loc
+        self.scale = scale
     
     def __call__(self, X):
         X_ = X if self.loc is None else X-self.loc
+        scale = self.scale
         norm = torch.sum(X_**2, axis=-1)
-        return (self.bias**2 + norm)**self.p
+        return (self.bias**2 + scale**2 * norm)**self.p
 
     def grad(self, X):
         X_ = X if self.loc is None else X-self.loc
         norm = torch.sum(X_**2, axis=-1, keepdim=True)
+        scale_sq = self.scale ** 2
         p = self.p
-        return 2*p * (self.bias**2+norm)**(p-1) * X_
+        return 2*scale_sq*p * (self.bias**2+ (scale_sq*norm) )**(p-1) * X_
 
 
 class KSTWeight(KSTKernel):
