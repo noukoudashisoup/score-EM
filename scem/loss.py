@@ -33,7 +33,7 @@ class KSD(_Loss):
         n = X.shape[0]
         if vstat:
             return (H.mean() if weight is None else 
-                    (H.dot(weight).dot(weight))
+                    (H.dot(weight).dot(weight)))
         else:
             return (H.sum()-H.trace())/(n*(n-1))
             
