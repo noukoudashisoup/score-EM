@@ -25,15 +25,17 @@ class KSD(_Loss):
         self.k = k
         self.score_fn = score_fn
     
-    def loss(self, X, vstat=False, weight=None):
+    def loss(self, X, vstat=False, weight=None, ignore_diag=False):
         score_fn = self.score_fn
         k = self.k
         S = score_fn(X)
         H = ksd_gram(X, S, k)
         n = X.shape[0]
         if vstat:
+            if ignore_diag:
+                H = (1. - torch.eye(n))*H
             return (H.mean() if weight is None else 
-                    (H.dot(weight).dot(weight)))
+                    (H @ weight) @ weight)
         else:
             return (H.sum()-H.trace())/(n*(n-1))
             
